@@ -73,7 +73,7 @@ const checkpoint = async () => {
   if (!env.spriteSocket) return;
   await Bun.spawn(["sprite-env", "checkpoints", "create"], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => undefined);
 };
-registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }));
+registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }).filter((t) => t.spec.name !== "image_generate"));
 registry.register(memorySearchTool(new MemoryIndex(state)));
 const codes = new CodeBox();
 registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => void (await line.text(t)) }));
