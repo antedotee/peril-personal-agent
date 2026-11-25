@@ -1,0 +1,14 @@
+{
+  "name": "@peril/channel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@peril/core": "workspace:*",
+    "@spectrum-ts/hono": "12.16.0",
+    "hono": "^4.13.22",
+    "spectrum-ts": "12.16.0"
+  }
+}
