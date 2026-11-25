@@ -1,0 +1,7 @@
+node_modules/
+.peril/
+.audit/
+todo.md
+*.log
+.env
+.env.*

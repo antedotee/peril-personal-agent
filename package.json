@@ -1,0 +1,16 @@
+{
+  "name": "peril-personal-agent",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "start": "bun packages/server/src/main.ts",
+    "test": "bun test",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "doctor": "bun packages/server/src/doctor.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  }
+}
