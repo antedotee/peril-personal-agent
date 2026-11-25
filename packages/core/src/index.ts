@@ -17,3 +17,4 @@ export * from "./core-tools.js";
 export * from "./net-guard.js";
 export * from "./pdf.js";
 export * from "./receipts.js";
+export * from "./memory-search.js";

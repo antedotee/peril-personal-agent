@@ -14,7 +14,9 @@ import {
   Scheduler,
   StateDir,
   ToolRegistry,
+  MemoryIndex,
   coreTools,
+  memorySearchTool,
   defaultConfig,
   perilPolicy,
   type InstinctConfig,
@@ -71,6 +73,7 @@ const checkpoint = async () => {
   await Bun.spawn(["sprite-env", "checkpoints", "create"], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => undefined);
 };
 registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }));
+registry.register(memorySearchTool(new MemoryIndex(state)));
 const codes = new CodeBox();
 registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => void (await line.text(t)) }));
 registry.registerMany(watcherTools({ watchers, startDeepTask: (o) => conductor.startDeepTask(o), checkpoint }));
