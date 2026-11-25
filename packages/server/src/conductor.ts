@@ -13,6 +13,7 @@ import { isQuiet, nextAwake, type QuietHours } from "./clock.js";
 import type { PerilStore } from "./store.js";
 import { cleanReply, localTime } from "./text.js";
 import type { WatcherStore } from "./watchers.js";
+import type { CodeBox } from "./codebox.js";
 import { wrapExternal } from "@peril/tools-mcp";
 
 export interface BrainLike {
@@ -40,6 +41,7 @@ export interface ConductorDeps {
   inboxDir: string;
   saveFile?: (path: string, data: Buffer) => Promise<void>;
   watchers?: WatcherStore;
+  codes?: CodeBox;
   /** Turns a voice memo into text, when whisper is installed. */
   transcribe?: (path: string) => Promise<string | undefined>;
   now?: () => Date;
@@ -102,6 +104,10 @@ export class Conductor {
         return this.onTapback(event.emoji, event.targetId);
       case "text": {
         await line.markRead(event.id);
+        if (this.deps.codes?.offer(event.text)) {
+          await line.react(event.id, TAPBACK.done);
+          return this.enqueue(`(${this.deps.owner.name} sent the ${this.deps.codes.waitingFor} code. Call fill_code with the input's ref.)`);
+        }
         const answered = this.deps.approvals.matchReply(event.text);
         if (answered && answered.approval.status !== "pending") return this.afterVerdict(answered.approval, answered.approved);
         if (/^\s*\/fresh\s*$/i.test(event.text)) return this.freshStart(event.id);

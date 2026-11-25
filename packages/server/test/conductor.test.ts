@@ -8,6 +8,7 @@ import { FakeLine, type InboundEvent } from "@peril/channel";
 import { Conductor, FOLLOW_UP_AFTER_MS, type BrainLike } from "../src/conductor.js";
 import type { Holds } from "../src/holds.js";
 import { PerilStore } from "../src/store.js";
+import { CodeBox } from "../src/codebox.js";
 
 const OWNER = "+919876543210";
 
@@ -29,7 +30,7 @@ class RecordingHolds implements Holds {
   async release(name: string) { this.log.push(`release ${name}`); }
 }
 
-function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: number } = {}) {
+function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: number; codes?: CodeBox } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "peril-conductor-"));
   const state = new StateDir(root);
   state.ensure();
@@ -56,6 +57,7 @@ function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: nu
     holds,
     inboxDir: root,
     replan: async () => void replans++,
+    ...(opts.codes ? { codes: opts.codes } : {}),
     debounceMs: 5,
     replyBudgetMs: opts.replyBudgetMs ?? 1000,
     ...(opts.now ? { now: opts.now } : {}),
@@ -217,6 +219,19 @@ describe("Conductor, wakes", () => {
     now = new Date("2026-11-27T02:30:00Z");
     await conductor.onTick();
     expect(line.texts()).toEqual(["new email from your landlord"]);
+  });
+
+  it("routes a login code around Kiro", async () => {
+    const codes = new CodeBox();
+    const base = setup({ codes });
+    const conductor = base.conductor;
+    codes.expect("Swiggy");
+    await conductor.onInbound(text("483920"));
+    await conductor.settle();
+    expect(base.brain.runs).toHaveLength(1);
+    expect(base.brain.runs[0]?.text).not.toContain("483920");
+    expect(base.brain.runs[0]?.text).toContain("fill_code");
+    expect(codes.take()).toBe("483920");
   });
 
   it("runs an outside event in a tainted, disposable event session", async () => {

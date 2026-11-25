@@ -32,6 +32,7 @@ import { perilTools } from "./peril-tools.js";
 import { PerilStore } from "./store.js";
 import { WatcherStore, watcherTools } from "./watchers.js";
 import { composioEventsHandler } from "./events.js";
+import { CodeBox, agentBrowserFill, codeTools } from "./codebox.js";
 
 const env = loadEnv();
 const state = new StateDir(env.dataDir);
@@ -70,6 +71,8 @@ const checkpoint = async () => {
   await Bun.spawn(["sprite-env", "checkpoints", "create"], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => undefined);
 };
 registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }));
+const codes = new CodeBox();
+registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => void (await line.text(t)) }));
 registry.registerMany(watcherTools({ watchers, startDeepTask: (o) => conductor.startDeepTask(o), checkpoint }));
 registry.registerMany(perilTools({ line, scopes: store, roots: [env.workspace, inboxDir], startDeepTask: (o) => conductor.startDeepTask(o) }));
 if (env.composio) {
@@ -116,6 +119,7 @@ conductor = new Conductor({
   holds,
   inboxDir,
   watchers,
+  codes,
   replan: async () => {
     try {
       await planner.plan(conductor.nextDue());
