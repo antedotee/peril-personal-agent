@@ -279,7 +279,7 @@ export class Conductor {
     const last = Number(this.deps.store.getValue(AUTH_NOTICE_KEY) ?? 0);
     if (this.now().getTime() - last < AUTH_NOTICE_EVERY_MS) return;
     this.deps.store.setValue(AUTH_NOTICE_KEY, String(this.now().getTime()));
-    await this.deps.line.text("my Kiro login expired. from your laptop run: sprite exec -s peril -tty -- kiro-cli login --use-device-flow, then approve the code on your phone");
+    await this.deps.line.text("my Kiro login expired. on your laptop run sprite console -s peril, then kiro-cli login --use-device-flow, and approve the code on your phone");
   }
 
   /** Called by the guard when a tool needs the owner's thumbs-up. */

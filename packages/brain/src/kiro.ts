@@ -5,12 +5,25 @@ import type { AgentProcess, SessionRecord, SessionStore } from "./brain.js";
 /** Spawn `kiro-cli acp`. setup.sh pins the V3 harness with `kiro-cli settings acp.agentEngine v3`. stderr goes to the service log. */
 export function spawnKiro(opts: { bin?: string; cwd: string }): AgentProcess {
   const args = [opts.bin ?? "kiro-cli", "acp"];
-  const proc = Bun.spawn(args, { cwd: opts.cwd, stdin: "pipe", stdout: "pipe", stderr: "inherit" });
+  const proc = Bun.spawn(args, { cwd: opts.cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  let tail = "";
+  void (async () => {
+    const decoder = new TextDecoder();
+    const reader = proc.stderr.getReader();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      process.stderr.write(text);
+      tail = (tail + text).slice(-2000);
+    }
+  })();
   return {
     stdin: { write: (line) => void proc.stdin.write(line) },
     stdout: proc.stdout,
     exited: proc.exited,
     kill: () => proc.kill(),
+    stderrTail: () => tail,
   };
 }
 

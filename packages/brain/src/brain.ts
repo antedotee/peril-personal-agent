@@ -11,7 +11,11 @@ export interface AgentProcess {
   stdout: ReadableStream<Uint8Array>;
   exited: Promise<number>;
   kill(): void;
+  /** The last stderr output, used to tell a sign-in problem from a crash. */
+  stderrTail?: () => string;
 }
+
+const SIGNED_OUT = /not logged in|kiro-cli login|authentication required|session expired/i;
 
 export interface SessionRecord {
   sessionId: string;
@@ -121,7 +125,9 @@ export class Brain {
       if (error instanceof RpcError && (error.code === AUTH_REQUIRED || /auth/i.test(error.message))) {
         return { kind: "auth_required", message: error.message };
       }
+      const stderr = this.proc?.stderrTail?.() ?? "";
       if (this.peer?.isClosed) this.shutdown();
+      if (SIGNED_OUT.test(stderr)) return { kind: "auth_required", message: stderr.trim().split("\n").at(-1) ?? "signed out" };
       return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
     }
   }
