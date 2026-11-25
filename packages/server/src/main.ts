@@ -30,6 +30,8 @@ import { loadEnv } from "./env.js";
 import { noHolds, spriteHolds } from "./holds.js";
 import { perilTools } from "./peril-tools.js";
 import { PerilStore } from "./store.js";
+import { WatcherStore, watcherTools } from "./watchers.js";
+import { composioEventsHandler } from "./events.js";
 
 const env = loadEnv();
 const state = new StateDir(env.dataDir);
@@ -62,7 +64,13 @@ const holds = env.spriteSocket ? spriteHolds(env.spriteSocket) : noHolds;
 
 const registry = new ToolRegistry();
 let conductor: Conductor;
+const watchers = new WatcherStore(state, { workspace: env.workspace });
+const checkpoint = async () => {
+  if (!env.spriteSocket) return;
+  await Bun.spawn(["sprite-env", "checkpoints", "create"], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => undefined);
+};
 registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }));
+registry.registerMany(watcherTools({ watchers, startDeepTask: (o) => conductor.startDeepTask(o), checkpoint }));
 registry.registerMany(perilTools({ line, scopes: store, roots: [env.workspace, inboxDir], startDeepTask: (o) => conductor.startDeepTask(o) }));
 if (env.composio) {
   registry.registerMany(appsTools({ transport: gatewayTransport({ baseUrl: env.composio.gatewayUrl }), userId: env.composio.userId, toolkits: env.composio.toolkits }));
@@ -107,6 +115,7 @@ conductor = new Conductor({
   notifier,
   holds,
   inboxDir,
+  watchers,
   replan: async () => {
     try {
       await planner.plan(conductor.nextDue());
@@ -129,7 +138,16 @@ const pub = publicApp({
   photonWebhook: line instanceof PhotonLine ? (req) => line.handleWebhook(req, onEvent) : undefined,
   tickKey: env.tickKey,
   onTick: () => conductor.onTick(),
-  appEvents: undefined,
+  appEvents: env.composioWebhookSecret
+    ? composioEventsHandler({
+        secret: env.composioWebhookSecret,
+        firstSight: (id) => store.firstSight(id),
+        memory: () => memory.readDurable(),
+        onSkipped: (e) => audit.append({ kind: "inbound", detail: { appEvent: e.slug, skipped: true } }),
+        onImportant: (e, why) =>
+          conductor.eventTurn({ id: e.id, source: e.slug, body: why.body, instruction: `New ${e.slug.toLowerCase().replace(/_/g, " ")} (${why.reason}). Decide whether Kartik needs to know now; if so, write one short text.` }),
+      })
+    : undefined,
 });
 const local = localApp(guard);
 local.post("/dev/say", async (c) => {

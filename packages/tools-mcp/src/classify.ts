@@ -11,6 +11,7 @@ const ROWS: Readonly<Record<string, Row>> = {
   web_fetch: { ...PLAIN, taints: true, source: "web" },
   web_search: { ...PLAIN, taints: true, source: "web search" },
   create_watcher: { ...PLAIN, blockedWhenTainted: true },
+  watcher_register: { ...PLAIN, blockedWhenTainted: true },
   skill_install: { ...PLAIN, blockedWhenTainted: true },
 };
 

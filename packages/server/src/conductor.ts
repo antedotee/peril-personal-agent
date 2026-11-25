@@ -12,6 +12,8 @@ import { HUMAN_LINGER, during, type Holds } from "./holds.js";
 import { isQuiet, nextAwake, type QuietHours } from "./clock.js";
 import type { PerilStore } from "./store.js";
 import { cleanReply, localTime } from "./text.js";
+import type { WatcherStore } from "./watchers.js";
+import { wrapExternal } from "@peril/tools-mcp";
 
 export interface BrainLike {
   run(opts: { key: string; kind: SessionKind; text: string }): Promise<TurnResult>;
@@ -37,6 +39,7 @@ export interface ConductorDeps {
   /** Files the owner sends land here. */
   inboxDir: string;
   saveFile?: (path: string, data: Buffer) => Promise<void>;
+  watchers?: WatcherStore;
   /** Turns a voice memo into text, when whisper is installed. */
   transcribe?: (path: string) => Promise<string | undefined>;
   now?: () => Date;
@@ -325,6 +328,14 @@ export class Conductor {
       fired.push(`schedule:${entry.id}`);
       await this.fire(entry);
     }
+    for (const outcome of (await this.deps.watchers?.runDue()) ?? []) {
+      if (outcome.kind === "hit") {
+        fired.push(`watcher:${outcome.watcher.id}`);
+        await this.eventTurn({ id: `watch-${outcome.watcher.id}-${now.getTime()}`, source: `watcher ${outcome.watcher.id}`, body: `${outcome.watcher.description}\n${outcome.summary}`, instruction: "A watcher Kartik set up just matched. Text him one short message about it." });
+      } else if (outcome.kind === "failed" && outcome.watcher.failures === 3) {
+        this.note(OWNER_KEY, `Watcher ${outcome.watcher.id} (${outcome.watcher.description}) has failed 3 times: ${outcome.error}`);
+      }
+    }
     const loops = store.openLoops();
     const oldest = loops[0];
     if (oldest && now.getTime() - Date.parse(oldest.at) >= FOLLOW_UP_AFTER_MS) {
@@ -355,6 +366,26 @@ export class Conductor {
     await this.turn({ key: OWNER_KEY, kind: "chat", text: `[scheduled: ${entry.name ?? entry.id}] ${prompt}`, ownerTurn: false, proactive: "initiative" });
   }
 
+  /**
+   * An outside event (watcher hit, important email, calendar change) gets a fresh,
+   * disposable session with a tool-call cap, so the main conversation never sees the raw text.
+   */
+  async eventTurn(opts: { id: string; source: string; body: string; instruction: string }): Promise<void> {
+    const key = `event:${opts.id}`;
+    this.deps.store.taint(key, opts.source);
+    try {
+      await this.turn({
+        key,
+        kind: "event",
+        text: `${opts.instruction} If he doesn't need to know now, reply NOTHING.\n\n${wrapExternal({ source: opts.source, body: opts.body, owner: this.deps.owner.name })}`,
+        ownerTurn: false,
+        proactive: "initiative",
+      });
+    } finally {
+      this.deps.brain.forget(key);
+    }
+  }
+
   /** The earliest moment anything is due, for the wake planner. */
   nextDue(): Date | undefined {
     const { scheduler, store } = this.deps;
@@ -364,6 +395,8 @@ export class Conductor {
     if (deferred) times.push(deferred.getTime());
     const loop = store.openLoops()[0];
     if (loop) times.push(Date.parse(loop.at) + FOLLOW_UP_AFTER_MS);
+    const watcher = this.deps.watchers?.nextDue();
+    if (watcher) times.push(watcher.getTime());
     return times.length ? new Date(Math.min(...times)) : undefined;
   }
 }

@@ -2,9 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AgentProcess, SessionRecord, SessionStore } from "./brain.js";
 
-/** Spawn `kiro-cli acp` on the V3 harness. stderr goes to the service log. */
-export function spawnKiro(opts: { bin?: string; agent?: string; cwd: string }): AgentProcess {
-  const args = [opts.bin ?? "kiro-cli", "acp", "--agent-engine=v3"];
+/** Spawn `kiro-cli acp`. setup.sh pins the V3 harness with `kiro-cli settings acp.agentEngine v3`. stderr goes to the service log. */
+export function spawnKiro(opts: { bin?: string; cwd: string }): AgentProcess {
+  const args = [opts.bin ?? "kiro-cli", "acp"];
   const proc = Bun.spawn(args, { cwd: opts.cwd, stdin: "pipe", stdout: "pipe", stderr: "inherit" });
   return {
     stdin: { write: (line) => void proc.stdin.write(line) },
