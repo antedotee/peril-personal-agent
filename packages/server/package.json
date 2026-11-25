@@ -1,0 +1,15 @@
+{
+  "name": "@peril/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@peril/brain": "workspace:*",
+    "@peril/channel": "workspace:*",
+    "@peril/core": "workspace:*",
+    "@peril/tools-mcp": "workspace:*",
+    "hono": "^4.13.22",
+    "typebox": "1.3.27"
+  }
+}

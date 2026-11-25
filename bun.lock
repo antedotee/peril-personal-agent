@@ -45,6 +45,7 @@
         "@peril/core": "workspace:*",
         "@peril/tools-mcp": "workspace:*",
         "hono": "^4.13.22",
+        "typebox": "1.3.27",
       },
     },
     "packages/tools-mcp": {
