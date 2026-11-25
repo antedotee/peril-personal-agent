@@ -175,6 +175,12 @@ export class ApprovalStore {
       .map((a) => ({ ...a }));
   }
 
+  /** Approved approvals still on file, newest last. */
+  approved(): Approval[] {
+    return this.sweep(this.load())
+      .filter((a) => a.status === "approved")
+      .map((a) => ({ ...a }));
+  }
   /** The pending approval, if any, that matches the same conversation, tool and arguments. */
   findPending(match: { conversationKey: string; toolName?: string; argsHash?: string }): Approval | undefined {
     return this.pending().find((a) => a.conversationKey === match.conversationKey && a.toolName === match.toolName && a.argsHash === match.argsHash && a.toolName !== undefined);
