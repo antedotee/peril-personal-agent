@@ -18,19 +18,29 @@ export function gatewayTransport(opts: { baseUrl: string; fetchImpl?: typeof fet
   const doFetch = opts.fetchImpl ?? fetch;
   return {
     async request({ method, path, body }) {
-      const res = await doFetch(`${base}${path}`, {
-        method,
-        headers: body === undefined ? {} : { "content-type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      const text = await res.text();
-      if (!res.ok) throw new Error(`Composio ${res.status}: ${text.slice(0, 300)}`);
-      return text ? JSON.parse(text) : {};
+      for (let attempt = 0; ; attempt++) {
+        const res = await doFetch(`${base}${path}`, {
+          method,
+          headers: body === undefined ? {} : { "content-type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        const text = await res.text();
+        if (res.ok) return text ? JSON.parse(text) : {};
+        // An expired or revoked connection never fixes itself: stop and tell the owner.
+        if (res.status === 401 || res.status === 403 || /invalid_grant|reconnect|expired/i.test(text)) {
+          throw new Error(`the app connection needs reconnecting (${res.status}). Tell the owner once to reconnect it in Composio; do not retry.`);
+        }
+        const transient = res.status === 429 || res.status >= 500;
+        // Only reads retry here. A failed write is left to the receipt, never resent blindly.
+        if (!transient || method !== "GET" || attempt >= RETRY_DELAYS_MS.length) throw new Error(`Composio ${res.status}: ${text.slice(0, 300)}`);
+        await Bun.sleep(RETRY_DELAYS_MS[attempt]!);
+      }
     },
   };
 }
 
 export const API = "/api/v3.1";
+const RETRY_DELAYS_MS = [1000, 3000];
 
 const SIDE_EFFECTS: ReadonlySet<Capability> = new Set(["email.send", "calendar.write", "plans.commit", "purchase", "travel.book", "data.delete"]);
 const READS_OTHERS: ReadonlySet<Capability> = new Set(["email.read", "calendar.read", "contacts.read"]);

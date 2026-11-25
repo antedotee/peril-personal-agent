@@ -35,6 +35,7 @@ import { PerilStore } from "./store.js";
 import { WatcherStore, watcherTools } from "./watchers.js";
 import { composioEventsHandler } from "./events.js";
 import { CodeBox, agentBrowserFill, codeTools } from "./codebox.js";
+import { whisperTranscriber } from "./voice.js";
 
 const env = loadEnv();
 const state = new StateDir(env.dataDir);
@@ -123,6 +124,10 @@ conductor = new Conductor({
   inboxDir,
   watchers,
   codes,
+  ...(() => {
+    const transcribe = whisperTranscriber({ whisperBin: process.env.PERIL_WHISPER_BIN ?? "whisper-cli", model: process.env.PERIL_WHISPER_MODEL ?? path.join(env.dataDir, "models", "ggml-base.bin") });
+    return transcribe ? { transcribe } : {};
+  })(),
   replan: async () => {
     try {
       await planner.plan(conductor.nextDue());
