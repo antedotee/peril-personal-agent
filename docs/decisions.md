@@ -4,7 +4,7 @@ Each row is a question the plan could not answer from documentation. A row moves
 
 | # | Question | Status | Evidence or fallback |
 | --- | --- | --- | --- |
-| 1 | Kiro org device-flow login works on the Sprite, and ACP `session/new` accepts `_meta.kiro.modelId` | open | Fallback: open-instinct's Pi loop with Gemini's free tier |
+| 1 | Kiro org device-flow login works on the Sprite, and ACP `session/new` accepts `_meta.kiro.modelId` | verified | Org login on the Sprite, then `/dev/say` returned a reply in Peril's voice through `kiro-cli acp` with `claude-sonnet-5.5` set. Whether Kiro used that model rather than `auto` is not yet confirmed | Fallback: open-instinct's Pi loop with Gemini's free tier |
 | 2 | Kiro sends `session/request_permission` to the ACP client for an untrusted tool | open | Fallback: rely on the policy guard alone, which already blocks every side effect |
 | 3 | Kiro uses the `mcpServers` passed in `session/new`, including the `x-peril-scope` header | open | Fallback: a workspace `.kiro/settings/mcp.json` pointing at `http://127.0.0.1:8081/mcp`, scope `owner` |
 | 4 | Photon Free lets Peril text the owner first after one inbound message | open | Fallback: the owner's Mac with imessage-kit |
