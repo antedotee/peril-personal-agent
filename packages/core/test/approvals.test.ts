@@ -100,11 +100,13 @@ describe("ApprovalStore", () => {
     expect(store.matchReply(`yes ${a.token}`)?.approved).toBe(true);
   });
 
-  it("accepts an explicit verb without a token, and a bare yes for the owner's own cheap request", () => {
+  it("accepts an explicit verb without a token, and a bare yes only right after the approval text (Peril's rule)", () => {
     const store = new ApprovalStore(tempState());
     const a = store.create(base);
     expect(store.matchReply("approve")?.approval.token).toBe(a.token);
     const own = store.create({ ...base, requestedBy: "owner" });
+    expect(store.matchReply("yes")).toBeUndefined();
+    store.markPrompted(own.token);
     expect(store.matchReply("yes")?.approval.token).toBe(own.token);
     const money = store.create({ ...base, requestedBy: "owner", amountUsd: 75 });
     expect(store.matchReply("yes")).toBeUndefined(); // money needs the token or the context

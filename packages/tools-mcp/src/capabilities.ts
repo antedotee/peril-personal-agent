@@ -161,7 +161,7 @@ const DELETE_WORDS: ReadonlySet<string> = new Set(["DELETE", "TRASH", "REMOVE", 
 const OWN_DRAFT_SLUGS: ReadonlySet<string> = new Set(["GMAIL_CREATE_EMAIL_DRAFT", "GMAIL_UPDATE_DRAFT"]);
 /** A new event with no guests is a hold on the owner's own calendar. */
 const OWN_HOLD_SLUGS: ReadonlySet<string> = new Set(["GOOGLECALENDAR_CREATE_EVENT", "GOOGLECALENDAR_QUICK_ADD"]);
-const FREEBUSY_WORDS: ReadonlySet<string> = new Set(["FREEBUSY", "FREE"]);
+
 
 function hasGuests(args: unknown): boolean {
   if (typeof args !== "object" || args === null) return false;
@@ -176,7 +176,8 @@ function hasGuests(args: unknown): boolean {
 /** A slug is a read only when its first action word is a read verb. Anything else is a write. */
 export function isReadSlug(slug: string): boolean {
   const action = slug.trim().toUpperCase().split("_").slice(1);
-  return action.length > 0 && (READ_VERBS.has(action[0]!) || action.some((t) => FREEBUSY_WORDS.has(t)));
+  const joined = action.join("_");
+  return action.length > 0 && (READ_VERBS.has(action[0]!) || joined.includes("FREEBUSY") || joined.includes("FREE_BUSY") || joined.includes("FREE_SLOTS"));
 }
 
 /**

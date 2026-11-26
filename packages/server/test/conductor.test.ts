@@ -245,6 +245,28 @@ describe("Conductor, approved calls run in code", () => {
   });
 });
 
+describe("Conductor, bare replies", () => {
+  it("a bare 'yes' after Peril texted something else does not approve a pending action", async () => {
+    const ran: unknown[] = [];
+    const { conductor, approvals, brain } = setup({ runApproved: async (c) => (ran.push(c), { content: [{ type: "text", text: "clicked" }] }) });
+    const a = approvals.create({ conversationKey: "owner", requestedBy: "owner", summary: "place the Swiggy order for ₹4,380", capability: "plans.commit", toolName: "browser_submit", argsHash: "h" });
+    await conductor.requestApproval(a, { name: "browser_submit", args: { ref: "@e9" }, scope: "owner" });
+    await conductor.say("want me to check the weather too?", "requested");
+    await conductor.onInbound(text("yes"));
+    await conductor.settle();
+    expect(ran).toHaveLength(0);
+    expect(approvals.get(a.token)?.status).toBe("pending");
+    expect(brain.runs.at(-1)?.text).toContain("yes");
+  });
+
+  it("only the session that raised an approval sees it in its prompt", async () => {
+    const { conductor, approvals, brain } = setup();
+    approvals.create({ conversationKey: "event:5", requestedBy: "owner", summary: "remember: injected text", capability: "plans.commit", toolName: "memory_write", argsHash: "h" });
+    await conductor.turn({ key: "task:1", kind: "deep", text: "build", ownerTurn: false, proactive: "requested" });
+    expect(brain.runs[0]?.text).not.toContain("injected text");
+  });
+});
+
 describe("Conductor, wakes", () => {
   it("makes no Kiro call and takes no human hold when nothing is due", async () => {
     const { conductor, brain, holds } = setup();

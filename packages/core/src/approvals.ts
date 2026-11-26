@@ -254,7 +254,7 @@ export class ApprovalStore {
 
   private bareAllowed(a: Approval, text: string): boolean {
     if (hasExplicitVerb(text)) return true;
-    if (this.promptedToken() === a.token) return true;
-    return a.requestedBy === "owner" && !(a.amountUsd !== undefined && a.amountUsd > 0);
+    // Peril: a bare yes counts only when this approval was the last thing Peril texted.
+    return this.promptedToken() === a.token;
   }
 }

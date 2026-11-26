@@ -65,7 +65,10 @@ const line = env.photon
 if (line instanceof FakeLine) process.stderr.write("peril: Photon is not configured; owner texts go to the dev log only\n");
 
 const outbox: Outbox = { send: async (msg) => void (await line.text(msg.text)) };
-const notifier = new OwnerNotifier({ state, audit, send: async (text) => void (await line.text(text)) });
+const notifier = new OwnerNotifier({ state, audit, send: async (text) => {
+  await line.text(text);
+  approvals.clearPrompted();
+} });
 const holds = env.spriteSocket ? spriteHolds(env.spriteSocket) : noHolds;
 
 const registry = new ToolRegistry();

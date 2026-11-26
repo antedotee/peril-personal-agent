@@ -92,6 +92,13 @@ export class Conductor {
     while (this.background.size > 0) await Promise.allSettled([...this.background]);
   }
 
+  /** Text the owner. Anything but an approval text means a bare "yes" no longer refers to that approval. */
+  private async text(body: string): Promise<string | undefined> {
+    const id = await this.deps.line.text(body);
+    this.deps.approvals.clearPrompted();
+    return id;
+  }
+
   private logError(where: string, error: unknown): void {
     this.deps.audit.append({ kind: "error", conversationKey: OWNER_KEY, detail: { where, message: error instanceof Error ? error.message : String(error) } });
   }
@@ -166,7 +173,7 @@ export class Conductor {
       const result = await during(this.deps.holds, `approved-${approval.token}`, () => this.deps.runApproved!(call));
       const detail = result.content.map((c) => (c.type === "text" ? c.text : "")).join(" ").slice(0, 300);
       this.note(call.scope, `Owner approved and Peril ran: ${approval.summary}. Result: ${detail}`);
-      await this.deps.line.text(result.isError ? `couldn't do it: ${detail.slice(0, 160)}` : `done ✅ ${approval.summary.slice(0, 120)}`);
+      await this.text(result.isError ? `couldn't do it: ${detail.slice(0, 160)}` : `done ✅ ${approval.summary.slice(0, 120)}`);
       return;
     }
     const key = approval.conversationKey;
@@ -242,7 +249,7 @@ export class Conductor {
       lines.push(`[memory]\n${digest}`);
       store.setValue(`digest:${key}`, hash);
     }
-    const pending = approvals.pending();
+    const pending = approvals.pending().filter((a) => a.conversationKey === key);
     if (pending.length) lines.push(`[waiting on the owner: ${pending.map((a) => a.summary).join("; ")}]`);
     for (const n of this.pendingNotes(key)) lines.push(`[${n}]`);
     return lines.join("\n");
@@ -257,7 +264,7 @@ export class Conductor {
     const budget = opts.ack
       ? setTimeout(() => {
           acked = true;
-          line.text("on it").catch((e: unknown) => this.logError("ack", e));
+          this.text("on it").catch((e: unknown) => this.logError("ack", e));
         }, this.deps.replyBudgetMs ?? 20_000)
       : undefined;
     if (opts.ack) void line.typing(true).catch(() => undefined);
@@ -267,7 +274,7 @@ export class Conductor {
     });
     store.setScope({ key: opts.key, kind: opts.kind, ownerTurn: false });
     try {
-      await this.deliver(result, opts.proactive, acked);
+      await this.deliver(opts.key, result, opts.proactive, acked);
     } catch (error) {
       this.logError("deliver", error);
     } finally {
@@ -276,17 +283,17 @@ export class Conductor {
     return result;
   }
 
-  private async deliver(result: TurnResult, proactive: Proactive, acked: boolean): Promise<void> {
+  private async deliver(key: string, result: TurnResult, proactive: Proactive, acked: boolean): Promise<void> {
     if (result.kind === "auth_required") return this.authNotice();
     if (result.kind === "failed") {
       this.deps.audit.append({ kind: "error", conversationKey: OWNER_KEY, principal: "owner", detail: { message: result.message } });
-      if (proactive === "requested") await this.deps.line.text("something broke on my end, give me a minute and ask again");
+      if (proactive === "requested") await this.text("something broke on my end, give me a minute and ask again");
       return;
     }
     const cleaned = cleanReply(result.text);
-    if (cleaned.openLoop) this.deps.store.addOpenLoop(cleaned.openLoop, this.now());
+    if (cleaned.openLoop && key === OWNER_KEY) this.deps.store.addOpenLoop(cleaned.openLoop, this.now());
     if (cleaned.silent) {
-      if (acked) await this.deps.line.text("done");
+      if (acked) await this.text("done");
       return;
     }
     for (const bubble of cleaned.bubbles) await this.say(bubble, proactive);
@@ -300,8 +307,7 @@ export class Conductor {
       store.defer(text, nextAwake(now, owner.timezone, quietHours));
       return;
     }
-    await line.text(text);
-    this.deps.approvals.clearPrompted();
+    await this.text(text);
     audit.append({ kind: "outbound", conversationKey: OWNER_KEY, principal: "owner", detail: { chars: text.length, proactive } });
   }
 
@@ -309,7 +315,7 @@ export class Conductor {
     const last = Number(this.deps.store.getValue(AUTH_NOTICE_KEY) ?? 0);
     if (this.now().getTime() - last < AUTH_NOTICE_EVERY_MS) return;
     this.deps.store.setValue(AUTH_NOTICE_KEY, String(this.now().getTime()));
-    await this.deps.line.text("my Kiro login expired. on your laptop run sprite console -s peril, then kiro-cli login --use-device-flow, and approve the code on your phone");
+    await this.text("my Kiro login expired. on your laptop run sprite console -s peril, then kiro-cli login --use-device-flow, and approve the code on your phone");
   }
 
   /** Called by the guard when a tool needs the owner's thumbs-up. */
@@ -361,7 +367,7 @@ export class Conductor {
       for (const d of store.dueDeferred(now)) {
         store.dropDeferred(d.id);
         fired.push(`deferred:${d.id}`);
-        await this.deps.line.text(d.text).catch((e: unknown) => this.logError("deferred", e));
+        await this.text(d.text).catch((e: unknown) => this.logError("deferred", e));
       }
     }
     try {

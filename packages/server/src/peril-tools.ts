@@ -38,7 +38,7 @@ export function perilTools(deps: PerilToolDeps): RegisteredTool[] {
     name: "start_deep_task",
     label: "Start deep work",
     description:
-      "Hand a long job (multi-step research, building a file or page, writing a watcher script) to a separate session on the strongest model. Returns at once; the result is texted to the owner when done. Keep chatting meanwhile.",
+      "Hand a long job (multi-step research, building a file or page) to a separate session on the strongest model. Returns at once; the result is texted to the owner when done. Keep chatting meanwhile.",
     parameters: Type.Object({ brief: Type.String({ description: "Everything the worker needs: goal, constraints, what to send back" }) }),
     meta: { capabilities: ["converse"], group: "system", describe: (a) => `deep task: ${String((a as { brief?: unknown }).brief ?? "").slice(0, 80)}` },
     execute: async ({ brief }, ctx) => {

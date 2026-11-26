@@ -18,7 +18,7 @@ import type {
   ToolRegistry,
   ToolResultLike,
 } from "@peril/core";
-import { canonicalJson } from "@peril/core";
+import { callKeyFor, canonicalJson } from "@peril/core";
 import type { McpBackend, McpCallResult, McpToolDescriptor } from "./mcp-http.js";
 import { wrapExternal } from "./untrusted.js";
 
@@ -56,6 +56,8 @@ export interface CallTraits {
   args?: unknown;
   /** Session kinds that may never call this tool. Event sessions do not drive the browser. */
   refuseIn?: readonly SessionKind[];
+  /** What the owner reads in the approval text, when the tool's own description is too short. */
+  approvalText?: string;
 }
 
 export type Classifier = (opts: { name: string; args: unknown; tool: RegisteredTool }) => CallTraits;
@@ -112,7 +114,7 @@ export class Guard implements McpBackend {
     const scope = scopes.get(opts.scope);
     const traits = this.deps.classify({ name: opts.name, args: opts.args, tool });
     const args = traits.args ?? opts.args;
-    const describe = tool.spec.meta.describe?.(args) ?? opts.name;
+    const describe = traits.approvalText ?? tool.spec.meta.describe?.(args) ?? opts.name;
     const tainted = scopes.isTainted(scope.key);
 
     if (traits.refuse) return refuse(traits.refuse);
@@ -127,6 +129,9 @@ export class Guard implements McpBackend {
     const decision = policy.evaluate(owner, meta, args);
     audit.append({ kind: "policy", conversationKey: scope.key, principal: owner.id, detail: { tool: opts.name, outcome: decision.outcome, reason: decision.reason } });
     if (decision.outcome === "deny") return refuse(`Blocked by policy: ${decision.reason}. Do not retry.`);
+    if (traits.sideEffect && receipts.get(callKeyFor(opts.name, args))?.status === "pending") {
+      return refuse(`An identical call is still marked in progress from before a restart, so it may already have happened. Do not retry. Check the real state, tell the owner, and ask before trying again.`);
+    }
     if (decision.outcome === "ask") {
       const hash = argsHash(args);
       const consumed = this.consumeApproval({ toolName: opts.name, argsHash: hash });
@@ -152,7 +157,7 @@ export class Guard implements McpBackend {
           content: [
             {
               type: "text",
-              text: `Waiting for the owner's thumbs-up on: ${describe}. Do not call ${opts.name} again now. Tell the owner in one short line what you are waiting on and end your turn. When they approve you will get a message starting "Owner approved".`,
+              text: `Waiting for the owner's thumbs-up on: ${describe}. Peril has texted them the exact action. Do not call ${opts.name} again. Reply NOTHING and end your turn; when they tap 👍, Peril runs the call itself and tells you the result.`,
             },
           ],
         };

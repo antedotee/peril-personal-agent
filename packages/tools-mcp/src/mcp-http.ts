@@ -4,6 +4,8 @@
  * approvals and receipts live next to the state they protect.
  */
 
+import { timingSafeEqual } from "node:crypto";
+
 export const MCP_PROTOCOL_VERSION = "2025-06-18";
 
 export interface McpToolDescriptor {
@@ -28,13 +30,19 @@ function isRpcMessage(value: unknown): value is RpcMessage {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function sameToken(given: string | null, expected: string): boolean {
+  const a = Buffer.from(given ?? "");
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
 export async function handleMcp(request: Request, backend: McpBackend, opts: { serverName?: string; token?: string } = {}): Promise<Response> {
   if (request.method !== "POST") return new Response("method not allowed", { status: 405, headers: { allow: "POST" } });
-  if (opts.token !== undefined && request.headers.get("authorization") !== `Bearer ${opts.token}`) return new Response("unauthorized", { status: 401 });
+  if (opts.token !== undefined && !sameToken(request.headers.get("authorization"), `Bearer ${opts.token}`)) return new Response("unauthorized", { status: 401 });
   if (!(request.headers.get("content-type") ?? "").includes("application/json")) return new Response("expected application/json", { status: 415 });
   const scope = request.headers.get("x-peril-scope") ?? "owner";
   let message: unknown;

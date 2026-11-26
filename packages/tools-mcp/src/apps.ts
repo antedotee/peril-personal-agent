@@ -52,8 +52,6 @@ export function gatewayTransport(opts: { baseUrl: string; fetchImpl?: typeof fet
 export const API = "/api/v3.1";
 const RETRY_DELAYS_MS = [1000, 3000];
 
-const READS_OTHERS: ReadonlySet<Capability> = new Set(["email.read", "calendar.read", "contacts.read"]);
-
 /** Classify one apps_execute call by its slug and arguments. `toolkits` are the ones the owner connected. */
 export function classifyAppCall(args: unknown, toolkits: readonly string[]): CallTraits {
   const record = typeof args === "object" && args !== null ? (args as { slug?: unknown; arguments?: unknown }) : {};
@@ -68,7 +66,7 @@ export function classifyAppCall(args: unknown, toolkits: readonly string[]): Cal
   const caps = perilCapabilitiesFor(slug, normalized.arguments);
   const all: Capability[] = ["apps.use", ...caps.filter((c) => c !== "apps.use")];
   const read = isReadSlug(slug);
-  return { ...base, capabilities: all, sideEffect: !read, taints: read && all.some((c) => READS_OTHERS.has(c)) };
+  return { ...base, capabilities: all, sideEffect: !read, taints: read };
 }
 
 interface ToolItem {

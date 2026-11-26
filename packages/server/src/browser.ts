@@ -16,7 +16,12 @@ export const agentBrowserCli: BrowserCli = async (args) => {
 };
 
 /** Words on a button or link that commit Kartik to something. */
-export const COMMIT_LABEL = /\b(pay|place order|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|delete|remove|cancel (my )?(order|booking|subscription)|subscribe|sign up|transfer|donate)\b/i;
+export const COMMIT_LABEL =
+  /\b(pay|place order|order now|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|post|publish|share|invite|delete|remove|cancel|subscribe|sign up|register|enroll|apply|transfer|donate|allow|authori[sz]e|approve|accept|agree|continue|proceed|join|follow)\b/i;
+/** Banner dismissals that look like commits but only close something. */
+const DISMISS_LABEL = /^\s*(accept( all)?( cookies)?|got it|ok(ay)?|close|dismiss|no,? thanks|not now|reject( all)?|maybe later)\s*$/i;
+/** Keys that move around a page without submitting anything. */
+const NAV_KEYS: ReadonlySet<string> = new Set(["escape", "tab", "shift+tab", "arrowup", "arrowdown", "arrowleft", "arrowright", "pageup", "pagedown", "home", "end"]);
 
 const REF = Type.String({ description: "Element ref from the last snapshot, e.g. @e7" });
 
@@ -56,8 +61,9 @@ export function browserTools(deps: { cli: BrowserCli }): RegisteredTool[] {
       meta: meta((a) => `click ${arg(a, "ref")}`),
       execute: async ({ ref }) => {
         const label = await cli(["get", "text", ref]);
-        if (label.ok && COMMIT_LABEL.test(label.out)) {
-          return { content: [{ type: "text", text: `"${label.out.slice(0, 60)}" commits Kartik. Use browser_submit with a description of what it does.` }], isError: true };
+        if (!label.ok) return { content: [{ type: "text", text: `Could not read ${ref}'s label, so it is not clicked. Snapshot again, or use browser_submit if it commits.` }], isError: true };
+        if (COMMIT_LABEL.test(label.out) && !DISMISS_LABEL.test(label.out)) {
+          return { content: [{ type: "text", text: `"${label.out.slice(0, 60)}" commits Kartik. Use browser_submit with the page URL, this label and what it does.` }], isError: true };
         }
         return out(await cli(["click", ref]), `clicked ${ref}; snapshot to see the result`);
       },
@@ -73,21 +79,36 @@ export function browserTools(deps: { cli: BrowserCli }): RegisteredTool[] {
     defineTool({
       name: "browser_press",
       label: "Press a key",
-      description: "Press a key such as Escape or Tab. Enter in a form counts as a submit; use browser_submit for that.",
+      description: "Press a navigation key: Escape, Tab, Shift+Tab, an arrow, PageUp, PageDown, Home or End. Keys that can submit (Enter, Space) are refused; use browser_submit.",
       parameters: Type.Object({ key: Type.String() }),
       meta: meta((a) => `press ${arg(a, "key")}`),
       execute: async ({ key }) => {
-        if (/^enter$/i.test(key.trim())) return { content: [{ type: "text", text: "Enter can submit a form. Use browser_submit." }], isError: true };
+        if (!NAV_KEYS.has(key.trim().toLowerCase().replace(/\s+/g, ""))) return { content: [{ type: "text", text: `${key} can submit a form. Use browser_submit, or click the element.` }], isError: true };
         return out(await cli(["press", key]));
       },
     }),
     defineTool({
       name: "browser_submit",
       label: "Submit, book or pay",
-      description: "Click the element that submits, books, pays or sends. Always waits for Kartik's thumbs-up on exactly what you describe: site, what happens, total price.",
-      parameters: Type.Object({ ref: REF, what: Type.String({ description: "What clicking it does, with the price, e.g. 'place the Swiggy order for ₹438 incl. fees'" }) }),
+      description:
+        "Click the element that submits, books, pays or sends. Waits for Kartik's thumbs-up on exactly what you describe. Before clicking, Peril checks the page is still at `url` and the element still reads `label`.",
+      parameters: Type.Object({
+        ref: REF,
+        url: Type.String({ description: "The current page URL, from the snapshot" }),
+        label: Type.String({ description: "The element's visible text, e.g. 'Place Order'" }),
+        what: Type.String({ description: "What clicking it does, with the price, e.g. 'place the Swiggy order for ₹438 incl. fees'" }),
+      }),
       meta: { capabilities: ["computer.use", "plans.commit"], group: "computer", describe: (a) => arg(a, "what") },
-      execute: async ({ ref }) => out(await cli(["click", ref]), `clicked ${ref}; snapshot to confirm what happened`),
+      execute: async ({ ref, url, label }) => {
+        const here = await cli(["get", "url"]);
+        const text = await cli(["get", "text", ref]);
+        if (!here.ok || here.out.trim() !== url.trim()) return { content: [{ type: "text", text: `The page moved (now ${here.out.slice(0, 120)}), so nothing was clicked. Ask again from the current page.` }], isError: true };
+        if (!text.ok || !text.out.toLowerCase().includes(label.trim().toLowerCase())) return { content: [{ type: "text", text: `${ref} no longer reads "${label}", so nothing was clicked.` }], isError: true };
+        const clicked = await cli(["click", ref]);
+        // A click that failed partway may still have landed: leave it in doubt rather than allow a retry.
+        if (!clicked.ok) throw new Error(`click on ${ref} did not confirm: ${clicked.out.slice(0, 200)}`);
+        return textResult(`clicked ${ref}; snapshot to confirm what happened`);
+      },
     }),
   ];
 }

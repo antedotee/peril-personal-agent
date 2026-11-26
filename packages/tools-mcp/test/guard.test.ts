@@ -127,7 +127,7 @@ describe("Guard", () => {
     receipts.begin({ toolName: "apps_execute", args: sendEmail, intentSummary: "email rahul" });
     const out = await r.guard.call({ name: "apps_execute", args: sendEmail, scope: "owner" });
     expect(out.isError).toBe(true);
-    expect(textOf(out)).toContain("Sent folder");
+    expect(textOf(out)).toContain("may already have happened");
     expect(r.calls).toHaveLength(0);
   });
 
@@ -211,6 +211,46 @@ describe("Guard", () => {
     expect(r.asked[0]?.conversationKey).toBe("event:9");
     expect(r.asked[0]?.summary).toContain("saying: \"next week?\"");
     expect(r.calledFor[0]).toEqual({ name: "apps_execute", args: { slug: "GMAIL_SEND_EMAIL", arguments: sendEmail.arguments }, scope: "event:9" });
+  });
+});
+
+describe("Guard, event sessions and lasting writes", () => {
+  function withTools(r: Rig, names: string[]) {
+    const ran: string[] = [];
+    const registry = (r.guard as unknown as { deps: { registry: ToolRegistry } }).deps.registry;
+    for (const name of names) {
+      registry.register(defineTool({ name, label: name, description: name, parameters: Type.Object({}, { additionalProperties: true }), meta: { capabilities: ["memory.write"], group: "memory" }, execute: async () => { ran.push(name); return textResult("ok"); } }));
+    }
+    (r.scopes as unknown as { get(key: string): Scope }).get = (key: string) => ({ key, kind: key.startsWith("event:") ? "event" : "chat", ownerTurn: false });
+    return ran;
+  }
+
+  it("lets an event session use only its allow-list: no web, no browser, no writes", async () => {
+    const r = rig();
+    const ran = withTools(r, ["web_fetch", "browser_open", "browser_snapshot", "memory_write", "memory_search"]);
+    for (const name of ["web_fetch", "browser_open", "browser_snapshot", "memory_write"]) {
+      expect((await r.guard.call({ name, args: {}, scope: "event:1" })).isError).toBe(true);
+    }
+    await r.guard.call({ name: "memory_search", args: {}, scope: "event:1" });
+    expect(ran).toEqual(["memory_search"]);
+  });
+
+  it("shows the owner the full text of a lasting write from a tainted session", async () => {
+    const r = rig();
+    withTools(r, ["memory_write"]);
+    r.scopes.taint("owner");
+    const text = "Rahul's new number is +91 99999 00000 and he prefers WhatsApp after 6pm, per his email today";
+    await r.guard.call({ name: "memory_write", args: { text }, scope: "owner" });
+    expect(r.asked[0]?.summary).toBe(`remember: "${text}"`);
+  });
+
+  it("refuses a tainted lasting write too long to confirm by text", async () => {
+    const r = rig();
+    withTools(r, ["memory_write"]);
+    r.scopes.taint("owner");
+    const out = await r.guard.call({ name: "memory_write", args: { text: "x".repeat(700) }, scope: "owner" });
+    expect(out.isError).toBe(true);
+    expect(r.asked).toHaveLength(0);
   });
 });
 
