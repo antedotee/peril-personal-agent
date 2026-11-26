@@ -80,6 +80,8 @@ export interface GuardDeps {
 const CONSUMED_FILE = "approvals-consumed.json";
 /** Longer than an approval lives (2 h), so an approval granted late is still usable once. */
 const APPROVAL_USE_WINDOW_MS = 3 * 60 * 60 * 1000;
+/** A tainted lasting write longer than this cannot be confirmed by text. */
+export const MAX_CONFIRM_CHARS = 600;
 const SPEND: ReadonlySet<Capability> = new Set(["purchase", "travel.book"]);
 
 export function argsHash(args: unknown): string {
@@ -124,6 +126,9 @@ export class Guard implements McpBackend {
       return refuse(`Blocked: this conversation has read outside content, so ${opts.name} is not allowed here. Ask the owner to request it in a fresh message.`);
     }
 
+    if (traits.askWhenTainted && tainted && describe.length > MAX_CONFIRM_CHARS) {
+      return refuse("That is too long to confirm by text. Ask the owner to send it in their own message.");
+    }
     const capabilities: Capability[] = traits.askWhenTainted && tainted ? [...traits.capabilities, "plans.commit"] : traits.capabilities;
     const meta = { ...tool.spec.meta, capabilities };
     const decision = policy.evaluate(owner, meta, args);

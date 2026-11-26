@@ -177,7 +177,8 @@ function hasGuests(args: unknown): boolean {
 export function isReadSlug(slug: string): boolean {
   const action = slug.trim().toUpperCase().split("_").slice(1);
   const joined = action.join("_");
-  return action.length > 0 && (READ_VERBS.has(action[0]!) || joined.includes("FREEBUSY") || joined.includes("FREE_BUSY") || joined.includes("FREE_SLOTS"));
+  const calendarFreeBusy = slug.trim().toUpperCase().startsWith("GOOGLECALENDAR_") && /FREEBUSY|FREE_BUSY|FREE_SLOTS/.test(joined);
+  return action.length > 0 && (READ_VERBS.has(action[0]!) || calendarFreeBusy);
 }
 
 /**

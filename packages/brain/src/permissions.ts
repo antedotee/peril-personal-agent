@@ -16,6 +16,8 @@ const RISKY: ReadonlySet<ToolKind> = new Set(["edit", "delete", "move", "execute
 
 export function permissionFor(opts: { session: SessionKind; tainted: boolean; toolKind: ToolKind; fromPerilMcp: boolean }): Verdict {
   if (opts.fromPerilMcp) return "allow";
+  // An event session reacts to text someone else wrote. It may think and call Peril's tools, nothing of Kiro's own.
+  if (opts.session === "event") return opts.toolKind === "think" ? "allow" : "reject";
   if (!RISKY.has(opts.toolKind)) return "allow";
   return opts.session === "deep" && !opts.tainted ? "allow" : "reject";
 }

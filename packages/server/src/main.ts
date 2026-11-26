@@ -78,7 +78,10 @@ const watchers = new WatcherStore(state);
 registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }).filter((t) => !["image_generate", "approval_settle"].includes(t.spec.name)));
 registry.register(memorySearchTool(new MemoryIndex(state)));
 const codes = new CodeBox();
-registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => void (await line.text(t)) }));
+registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => {
+  await line.text(t);
+  approvals.clearPrompted();
+} }));
 registry.registerMany(watcherTools({ watchers }));
 registry.registerMany(browserTools({ cli: agentBrowserCli }));
 registry.registerMany(perilTools({ line, scopes: store, roots: [env.workspace, inboxDir], startDeepTask: (o) => conductor.startDeepTask(o) }));

@@ -17,9 +17,13 @@ export const agentBrowserCli: BrowserCli = async (args) => {
 
 /** Words on a button or link that commit Kartik to something. */
 export const COMMIT_LABEL =
-  /\b(pay|place order|order now|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|post|publish|share|invite|delete|remove|cancel|subscribe|sign up|register|enroll|apply|transfer|donate|allow|authori[sz]e|approve|accept|agree|continue|proceed|join|follow)\b/i;
-/** Banner dismissals that look like commits but only close something. */
-const DISMISS_LABEL = /^\s*(accept( all)?( cookies)?|got it|ok(ay)?|close|dismiss|no,? thanks|not now|reject( all)?|maybe later)\s*$/i;
+  /\b(pay|place order|order now|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|post|publish|share|invite|delete|remove|cancel|subscribe|sign up|register|enroll|apply|transfer|donate|allow|authori[sz]e|approve|accept|agree|continue|proceed|join|follow|yes|ok|okay|save|done|finish|update|change|unsubscribe|archive|report|block)\b/i;
+/** Cookie-banner dismissals that look like commits but only close the banner. */
+const DISMISS_LABEL = /^\s*(accept all( cookies)?|accept cookies|got it|close|dismiss|no,? thanks|not now|reject all( cookies)?|maybe later)\s*$/i;
+
+export function normalizeLabel(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
 /** Keys that move around a page without submitting anything. */
 const NAV_KEYS: ReadonlySet<string> = new Set(["escape", "tab", "shift+tab", "arrowup", "arrowdown", "arrowleft", "arrowright", "pageup", "pagedown", "home", "end"]);
 
@@ -61,7 +65,7 @@ export function browserTools(deps: { cli: BrowserCli }): RegisteredTool[] {
       meta: meta((a) => `click ${arg(a, "ref")}`),
       execute: async ({ ref }) => {
         const label = await cli(["get", "text", ref]);
-        if (!label.ok) return { content: [{ type: "text", text: `Could not read ${ref}'s label, so it is not clicked. Snapshot again, or use browser_submit if it commits.` }], isError: true };
+        if (!label.ok || !normalizeLabel(label.out)) return { content: [{ type: "text", text: `${ref} has no readable label (an icon button?), so it is not clicked. If it commits, use browser_submit; otherwise describe it to Kartik.` }], isError: true };
         if (COMMIT_LABEL.test(label.out) && !DISMISS_LABEL.test(label.out)) {
           return { content: [{ type: "text", text: `"${label.out.slice(0, 60)}" commits Kartik. Use browser_submit with the page URL, this label and what it does.` }], isError: true };
         }
@@ -95,7 +99,7 @@ export function browserTools(deps: { cli: BrowserCli }): RegisteredTool[] {
       parameters: Type.Object({
         ref: REF,
         url: Type.String({ description: "The current page URL, from the snapshot" }),
-        label: Type.String({ description: "The element's visible text, e.g. 'Place Order'" }),
+        label: Type.String({ description: "The element's exact visible text from the snapshot, e.g. 'Place Order ₹438'. Kartik sees it, and Peril clicks only if the element reads exactly this." }),
         what: Type.String({ description: "What clicking it does, with the price, e.g. 'place the Swiggy order for ₹438 incl. fees'" }),
       }),
       meta: { capabilities: ["computer.use", "plans.commit"], group: "computer", describe: (a) => arg(a, "what") },
@@ -103,7 +107,10 @@ export function browserTools(deps: { cli: BrowserCli }): RegisteredTool[] {
         const here = await cli(["get", "url"]);
         const text = await cli(["get", "text", ref]);
         if (!here.ok || here.out.trim() !== url.trim()) return { content: [{ type: "text", text: `The page moved (now ${here.out.slice(0, 120)}), so nothing was clicked. Ask again from the current page.` }], isError: true };
-        if (!text.ok || !text.out.toLowerCase().includes(label.trim().toLowerCase())) return { content: [{ type: "text", text: `${ref} no longer reads "${label}", so nothing was clicked.` }], isError: true };
+        const wanted = normalizeLabel(label);
+        if (!wanted || !text.ok || normalizeLabel(text.out) !== wanted) {
+          return { content: [{ type: "text", text: `${ref} reads "${normalizeLabel(text.out).slice(0, 80)}", not exactly "${label}", so nothing was clicked. Ask again with the element's exact text.` }], isError: true };
+        }
         const clicked = await cli(["click", ref]);
         // A click that failed partway may still have landed: leave it in doubt rather than allow a retry.
         if (!clicked.ok) throw new Error(`click on ${ref} did not confirm: ${clicked.out.slice(0, 200)}`);

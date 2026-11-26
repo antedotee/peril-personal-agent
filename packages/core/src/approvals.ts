@@ -253,8 +253,9 @@ export class ApprovalStore {
   }
 
   private bareAllowed(a: Approval, text: string): boolean {
-    if (hasExplicitVerb(text)) return true;
-    // Peril: a bare yes counts only when this approval was the last thing Peril texted.
-    return this.promptedToken() === a.token;
+    // Peril: an approval that runs a tool settles without its token only when it was the
+    // last thing Peril texted, whatever the verb. Peril runs that call itself on the answer.
+    if (a.toolName) return this.promptedToken() === a.token;
+    return hasExplicitVerb(text) || this.promptedToken() === a.token;
   }
 }

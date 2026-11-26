@@ -293,7 +293,8 @@ export class Conductor {
     const cleaned = cleanReply(result.text);
     if (cleaned.openLoop && key === OWNER_KEY) this.deps.store.addOpenLoop(cleaned.openLoop, this.now());
     if (cleaned.silent) {
-      if (acked) await this.text("done");
+      const waiting = this.deps.approvals.pending().some((a) => a.conversationKey === key);
+      if (acked && !waiting) await this.text("done");
       return;
     }
     for (const bubble of cleaned.bubbles) await this.say(bubble, proactive);

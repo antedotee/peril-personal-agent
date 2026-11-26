@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ToolContext } from "@peril/core";
-import { browserTools, type BrowserCli } from "../src/browser.js";
+import { browserTools, normalizeLabel, type BrowserCli } from "../src/browser.js";
 
 const ctx: ToolContext = { principal: { kind: "owner", id: "owner", tier: "owner", displayName: "Kartik" }, conversationKey: "owner", channel: "imessage", now: () => new Date() };
 
@@ -37,8 +37,8 @@ describe("browser tools", () => {
   });
 
   it("refuses to click an element whose label it cannot read, and buttons like Allow, Post and Continue", async () => {
-    const { calls, run } = tools({ "@e2": "Allow", "@e3": "Post", "@e4": "Continue to payment", "@e5": "Accept all" });
-    for (const ref of ["@e1", "@e2", "@e3", "@e4"]) expect(JSON.stringify(await run("browser_click", { ref }))).toMatch(/browser_submit|not clicked/);
+    const { calls, run } = tools({ "@e0": "  ", "@e2": "Allow", "@e3": "Post", "@e4": "Continue to payment", "@e5": "Accept all", "@e6": "Yes", "@e7": "Save", "@e8": "Accept" });
+    for (const ref of ["@e0", "@e1", "@e2", "@e3", "@e4", "@e6", "@e7", "@e8"]) expect(JSON.stringify(await run("browser_click", { ref }))).toMatch(/browser_submit|not clicked/);
     await run("browser_click", { ref: "@e5" });
     expect(calls.filter((c) => c[0] === "click")).toEqual([["click", "@e5"]]);
   });
@@ -50,13 +50,17 @@ describe("browser tools", () => {
     const relabeled = tools({ "@e9": "Delete account" });
     await relabeled.run("browser_submit", { ref: "@e9", url: "https://swiggy.com/checkout", label: "Place Order", what: "order" });
     expect(relabeled.calls.filter((c) => c[0] === "click")).toHaveLength(0);
-    const ok = tools({ "@e9": "Place Order ₹438" });
-    await ok.run("browser_submit", { ref: "@e9", url: "https://swiggy.com/checkout", label: "Place Order", what: "order" });
+    const partial = tools({ "@e9": "Pay ₹50,000 to Mallory" });
+    for (const label of ["", "Pay"]) await partial.run("browser_submit", { ref: "@e9", url: "https://swiggy.com/checkout", label, what: "pay the ₹500 bill" });
+    expect(partial.calls.filter((c) => c[0] === "click")).toHaveLength(0);
+    const ok = tools({ "@e9": "Place  Order ₹438 " });
+    await ok.run("browser_submit", { ref: "@e9", url: "https://swiggy.com/checkout", label: "Place Order ₹438", what: "order" });
     expect(ok.calls.filter((c) => c[0] === "click")).toEqual([["click", "@e9"]]);
   });
 
   it("browser_submit throws when the click does not confirm, so the guard leaves it in doubt", async () => {
     const { run } = tools({ "@e9": "Place Order" }, { clickFails: true });
+    expect(normalizeLabel("  a \n b ")).toBe("a b");
     await expect(run("browser_submit", { ref: "@e9", url: "https://swiggy.com/checkout", label: "Place Order", what: "order" })).rejects.toThrow("did not confirm");
   });
 

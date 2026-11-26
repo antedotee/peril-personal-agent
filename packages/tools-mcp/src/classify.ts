@@ -5,7 +5,6 @@ import type { CallTraits, Classifier } from "./guard.js";
 type Row = Omit<CallTraits, "capabilities">;
 
 const PLAIN: Row = { sideEffect: false, taints: false, blockedWhenTainted: false };
-const MAX_CONFIRM_CHARS = 600;
 
 /** The only tools an event session (an email, a calendar change, a watcher hit) may call. */
 const EVENT_TOOLS: ReadonlySet<string> = new Set(["memory_read", "memory_search", "apps_search", "apps_execute", "schedule_list", "watcher_list", "audit_read"]);
@@ -37,7 +36,7 @@ function confirmText(name: string, args: unknown): string | undefined {
     case "journal_append":
       return `add to the journal: "${field(args, "text")}"`;
     case "schedule_create":
-      return `schedule "${field(args, "prompt")}" ${field(args, "cron") ? `on cron ${field(args, "cron")}` : `at ${field(args, "nextRunAt")}`}`;
+      return `schedule "${field(args, "prompt")}" ${field(args, "cron") ? `on cron ${field(args, "cron")}` : `at ${field(args, "at")}`}${field(args, "tz") ? ` (${field(args, "tz")})` : ""}`;
     case "watcher_create":
       return `watch ${field(args, "spec")} every ${field(args, "everyMinutes")} min`;
     case "browser_submit":
@@ -52,9 +51,6 @@ export function makeClassifier(opts: { toolkits: readonly string[] }): Classifie
     const refuseIn = EVENT_TOOLS.has(name) ? undefined : (["event"] as const);
     const base = name === "apps_execute" ? classifyAppCall(args, opts.toolkits) : { ...(ROWS[name] ?? PLAIN), capabilities: [...tool.spec.meta.capabilities] as Capability[] };
     const approvalText = confirmText(name, args);
-    if (approvalText && approvalText.length > MAX_CONFIRM_CHARS && base.askWhenTainted) {
-      return { ...base, refuse: `That is too long to confirm by text. Ask Kartik to send it in his own message.`, ...(refuseIn ? { refuseIn } : {}) };
-    }
     return { ...base, ...(approvalText ? { approvalText } : {}), ...(refuseIn ? { refuseIn } : {}) };
   };
 }

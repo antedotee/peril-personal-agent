@@ -128,7 +128,15 @@ describe("permissionFor", () => {
   it("always allows Peril's own MCP tools, which run their own policy guard", () => {
     expect(permissionFor({ session: "chat", tainted: true, toolKind: "execute", fromPerilMcp: true })).toBe("allow");
   });
-  it("allows reads everywhere", () => {
-    expect(permissionFor({ session: "event", tainted: true, toolKind: "read", fromPerilMcp: false })).toBe("allow");
+  it("allows reads in chat, even tainted", () => {
+    expect(permissionFor({ session: "chat", tainted: true, toolKind: "read", fromPerilMcp: false })).toBe("allow");
+  });
+
+  it("gives an event session none of Kiro's own tools except thinking", () => {
+    for (const toolKind of ["fetch", "search", "read", "other"] as const) {
+      expect(permissionFor({ session: "event", tainted: true, toolKind, fromPerilMcp: false })).toBe("reject");
+    }
+    expect(permissionFor({ session: "event", tainted: true, toolKind: "think", fromPerilMcp: false })).toBe("allow");
+    expect(permissionFor({ session: "event", tainted: true, toolKind: "other", fromPerilMcp: true })).toBe("allow");
   });
 });

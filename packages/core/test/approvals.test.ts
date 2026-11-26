@@ -114,6 +114,15 @@ describe("ApprovalStore", () => {
     expect(store.matchReply("yes")?.approval.token).toBe(money.token);
   });
 
+  it("never settles a tool approval from a verb alone; only right after its own text", () => {
+    const store = new ApprovalStore(tempState());
+    const a = store.create({ ...base, requestedBy: "owner", toolName: "browser_submit", argsHash: "h" });
+    expect(store.matchReply("confirm")).toBeUndefined();
+    expect(store.matchReply("approve")).toBeUndefined();
+    store.markPrompted(a.token);
+    expect(store.matchReply("confirm")?.approval.token).toBe(a.token);
+  });
+
   it("leaves the approval alone when the owner is talking about something else", () => {
     const store = new ApprovalStore(tempState());
     const a = store.create(base);

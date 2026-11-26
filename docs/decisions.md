@@ -18,11 +18,12 @@ Each row is a question the plan could not answer from documentation. A row moves
 
 - The server boots and `/health` answers. The public port has no `/mcp`. The local MCP port refuses a caller without the per-boot token. `/tick` answers 401 to a wrong key and 202 to the right one. Run on macOS with `PORT=18080 bun packages/server/src/main.ts`.
 - With Kiro signed out, a `/dev/say` message reaches `kiro-cli acp`, the exit is read as a sign-in problem, and the owner gets the sign-in instructions.
-- `bun test`: 397 tests pass across core, tools-mcp, brain and server.
+- `bun test`: 400 tests pass across core, tools-mcp, brain and server.
 
 ## Known limits
 
 - Kiro's shell, in a clean deep session, runs as the same Unix user that owns `~/.peril`. It can read the Photon secret and edit Peril's state. A separate Unix user for Kiro would close this; it is not done yet.
 - Messages waiting in the 2-second burst window live in memory. A crash inside that window loses them, though Photon's redelivery of an unacknowledged webhook may recover them.
-- A bare "yes" settles an approval only when that approval text was the last thing Peril sent. Otherwise a 👍 on the approval text is the answer.
+- A reply settles a tool approval without its 👍 only when that approval text was the last thing Peril sent, whatever the wording. Otherwise a 👍 on the approval text is the answer.
+- A call left in doubt by a crash stays refused until the owner clears it. Clearing it is manual for now: `DELETE FROM receipts WHERE status = 'pending'` in `~/.peril/peril.db` after checking the real state.
 - A clean deep session can run the `agent-browser` CLI from its shell and skip `browser_submit`. Deep sessions lose the shell as soon as they read outside content, which is what browsing does.

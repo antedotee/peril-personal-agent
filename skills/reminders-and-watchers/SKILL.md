@@ -8,7 +8,7 @@ Peril pays for every model call, so time-based and change-based jobs avoid the m
 
 ## Reminders
 
-- One-off: `schedule_create` with `nextRunAt` (ISO time) and prompt `say: <the exact text Kartik will get>`. Keep the text short and in your voice: `say: time to call mom`.
+- One-off: `schedule_create` with `at` (an ISO time) and prompt `say: <the exact text Kartik will get>`. Keep the text short and in your voice: `say: time to call mom`.
 - Recurring: a 5-field cron in `Asia/Kolkata`, same `say:` prompt.
 - Only use a full prompt when the job needs thinking, like "check my calendar and tell me if tomorrow starts before 9".
 - Confirm in one line with the time in IST, or react with a tapback by replying NOTHING after the schedule is saved.

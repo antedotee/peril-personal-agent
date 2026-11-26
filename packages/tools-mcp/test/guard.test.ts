@@ -244,6 +244,13 @@ describe("Guard, event sessions and lasting writes", () => {
     expect(r.asked[0]?.summary).toBe(`remember: "${text}"`);
   });
 
+  it("lets a clean session write a long journal line without asking", async () => {
+    const r = rig();
+    const ran = withTools(r, ["journal_append"]);
+    await r.guard.call({ name: "journal_append", args: { text: "y".repeat(700) }, scope: "owner" });
+    expect(ran).toEqual(["journal_append"]);
+  });
+
   it("refuses a tainted lasting write too long to confirm by text", async () => {
     const r = rig();
     withTools(r, ["memory_write"]);
