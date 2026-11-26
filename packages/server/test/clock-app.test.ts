@@ -70,7 +70,7 @@ describe("public routes", () => {
   it("refuses /tick without the key", async () => {
     expect((await app.request("/tick")).status).toBe(401);
     expect((await app.request("/tick?key=wrong")).status).toBe(401);
-    expect((await app.request("/tick?key=secret-key")).status).toBe(200);
+    expect((await app.request("/tick?key=secret-key")).status).toBe(202);
   });
 
   it("exposes no MCP on the public port", async () => {

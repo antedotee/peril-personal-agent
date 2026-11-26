@@ -32,8 +32,10 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-export async function handleMcp(request: Request, backend: McpBackend, opts: { serverName?: string } = {}): Promise<Response> {
+export async function handleMcp(request: Request, backend: McpBackend, opts: { serverName?: string; token?: string } = {}): Promise<Response> {
   if (request.method !== "POST") return new Response("method not allowed", { status: 405, headers: { allow: "POST" } });
+  if (opts.token !== undefined && request.headers.get("authorization") !== `Bearer ${opts.token}`) return new Response("unauthorized", { status: 401 });
+  if (!(request.headers.get("content-type") ?? "").includes("application/json")) return new Response("expected application/json", { status: 415 });
   const scope = request.headers.get("x-peril-scope") ?? "owner";
   let message: unknown;
   try {

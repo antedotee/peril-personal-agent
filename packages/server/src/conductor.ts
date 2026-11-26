@@ -7,7 +7,7 @@ import type { Approval, ApprovalStore, AuditLog, MemoryStore, OwnerNotifier, Sch
 import { normalizeEmail, normalizePhone } from "@peril/core";
 import type { TurnResult } from "@peril/brain";
 import { TAPBACK, isApprove, isDeny, type InboundEvent, type OwnerLine, type ReplyLine } from "@peril/channel";
-import type { SessionKind } from "@peril/tools-mcp";
+import type { McpCallResult, SessionKind } from "@peril/tools-mcp";
 import { HUMAN_LINGER, during, type Holds } from "./holds.js";
 import { isQuiet, nextAwake, type QuietHours } from "./clock.js";
 import type { PerilStore } from "./store.js";
@@ -37,6 +37,8 @@ export interface ConductorDeps {
   holds: Holds;
   /** Recompute and set the next cron-job.org wake. */
   replan: () => Promise<void>;
+  /** Run an approved tool call through the guard. */
+  runApproved?: (call: { name: string; args: unknown; scope: string }) => Promise<McpCallResult>;
   /** Files the owner sends land here. */
   inboxDir: string;
   saveFile?: (path: string, data: Buffer) => Promise<void>;
@@ -64,6 +66,8 @@ export class Conductor {
   private bufferTimer: ReturnType<typeof setTimeout> | undefined;
   private flushing: Promise<void> = Promise.resolve();
   private deepCounter = 0;
+  private turnCounter = 0;
+  private ticking: Promise<{ fired: string[] }> | undefined;
   private readonly background = new Set<Promise<unknown>>();
 
   constructor(private readonly deps: ConductorDeps) {
@@ -82,10 +86,14 @@ export class Conductor {
     if (this.bufferTimer) {
       clearTimeout(this.bufferTimer);
       this.bufferTimer = undefined;
-      this.flushing = this.flushing.then(() => this.flush());
+      this.flushing = this.flushing.then(() => this.flush()).catch((e: unknown) => this.logError("flush", e));
     }
     await this.flushing;
     while (this.background.size > 0) await Promise.allSettled([...this.background]);
+  }
+
+  private logError(where: string, error: unknown): void {
+    this.deps.audit.append({ kind: "error", conversationKey: OWNER_KEY, detail: { where, message: error instanceof Error ? error.message : String(error) } });
   }
 
   // Inbound ------------------------------------------------------------------
@@ -94,8 +102,11 @@ export class Conductor {
     const { store, line, audit } = this.deps;
     if (!store.firstSight(`imessage:${event.id}`, this.now())) return;
     if (!this.isOwner(event.from)) return this.onStranger(event);
-    line.adoptOwnerSpace?.(event.spaceId);
-    store.setValue("owner-space", event.spaceId);
+    // iMessage chat ids carry ";-;" for a one-to-one chat and ";+;" for a group.
+    if (!event.spaceId.includes(";+;")) {
+      line.adoptOwnerSpace?.(event.spaceId);
+      store.setValue("owner-space", event.spaceId);
+    }
     await this.deps.holds.hold("human", HUMAN_LINGER);
     audit.append({ kind: "inbound", conversationKey: OWNER_KEY, principal: "owner", detail: { kind: event.kind } });
     store.clearOpenLoops();
@@ -139,7 +150,7 @@ export class Conductor {
     const token = this.deps.store.approvalFor(targetId);
     if (!token) return;
     const approved = isApprove(emoji) ? true : isDeny(emoji) ? false : undefined;
-    if (approved === undefined) return;
+    if (approved === undefined || this.deps.approvals.get(token)?.status !== "pending") return;
     const resolved = this.deps.approvals.resolve(token, approved);
     if (resolved) await this.afterVerdict(resolved, approved);
   }
@@ -148,6 +159,14 @@ export class Conductor {
     this.deps.audit.append({ kind: "approval", conversationKey: approval.conversationKey, principal: "owner", detail: { token: approval.token, status: approval.status, summary: approval.summary } });
     if (!approved) {
       this.note(approval.conversationKey, `Owner declined: ${approval.summary}. Do not do it.`);
+      return;
+    }
+    const call = this.deps.store.callFor(approval.token);
+    if (call && this.deps.runApproved) {
+      const result = await during(this.deps.holds, `approved-${approval.token}`, () => this.deps.runApproved!(call));
+      const detail = result.content.map((c) => (c.type === "text" ? c.text : "")).join(" ").slice(0, 300);
+      this.note(call.scope, `Owner approved and Peril ran: ${approval.summary}. Result: ${detail}`);
+      await this.deps.line.text(result.isError ? `couldn't do it: ${detail.slice(0, 160)}` : `done ✅ ${approval.summary.slice(0, 120)}`);
       return;
     }
     const key = approval.conversationKey;
@@ -185,7 +204,7 @@ export class Conductor {
     if (this.bufferTimer) clearTimeout(this.bufferTimer);
     this.bufferTimer = setTimeout(() => {
       this.bufferTimer = undefined;
-      this.flushing = this.flushing.then(() => this.flush());
+      this.flushing = this.flushing.then(() => this.flush()).catch((e: unknown) => this.logError("flush", e));
     }, this.deps.debounceMs ?? 2000);
   }
 
@@ -233,12 +252,12 @@ export class Conductor {
     const { brain, line, store } = this.deps;
     store.setScope({ key: opts.key, kind: opts.kind, ownerTurn: opts.ownerTurn });
     const prompt = `${this.header(opts.key)}\n\n${opts.text}`;
-    const run = during(this.deps.holds, `turn-${opts.key}`, () => brain.run({ key: opts.key, kind: opts.kind, text: prompt }));
+    const run = during(this.deps.holds, `turn-${++this.turnCounter}`, () => brain.run({ key: opts.key, kind: opts.kind, text: prompt }));
     let acked = false;
     const budget = opts.ack
       ? setTimeout(() => {
           acked = true;
-          void line.text("on it");
+          line.text("on it").catch((e: unknown) => this.logError("ack", e));
         }, this.deps.replyBudgetMs ?? 20_000)
       : undefined;
     if (opts.ack) void line.typing(true).catch(() => undefined);
@@ -247,8 +266,13 @@ export class Conductor {
       if (opts.ack) void line.typing(false).catch(() => undefined);
     });
     store.setScope({ key: opts.key, kind: opts.kind, ownerTurn: false });
-    await this.deliver(result, opts.proactive, acked);
-    await this.deps.replan();
+    try {
+      await this.deliver(result, opts.proactive, acked);
+    } catch (error) {
+      this.logError("deliver", error);
+    } finally {
+      await this.deps.replan();
+    }
     return result;
   }
 
@@ -289,7 +313,8 @@ export class Conductor {
   }
 
   /** Called by the guard when a tool needs the owner's thumbs-up. */
-  async requestApproval(approval: Approval): Promise<void> {
+  async requestApproval(approval: Approval, call?: { name: string; args: unknown; scope: string }): Promise<void> {
+    if (call) this.deps.store.rememberCall(approval.token, call);
     const id = await this.deps.line.text(`ok to ${approval.summary}? 👍 to go ahead`);
     if (id) this.deps.store.linkApproval(id, approval.token);
     this.deps.approvals.markPrompted(approval.token);
@@ -307,33 +332,44 @@ export class Conductor {
       text: `${opts.brief}\n\nWhen done, reply with one short text for ${this.deps.owner.name}. Send any file you made with send_file first.`,
       ownerTurn: false,
       proactive: "requested",
-    }).finally(() => {
-      this.deps.brain.forget(key);
-      this.background.delete(work);
-    });
+    })
+      .catch((e: unknown) => this.logError("deep task", e))
+      .finally(() => {
+        this.deps.brain.forget(key);
+        this.background.delete(work);
+      });
     this.background.add(work);
     return key;
   }
 
   // Wakes ----------------------------------------------------------------------
 
-  /** Everything due at this minute, checked in code before any model call. */
-  async onTick(): Promise<{ fired: string[] }> {
+  /** Everything due at this minute, checked in code before any model call. One tick at a time. */
+  onTick(): Promise<{ fired: string[] }> {
+    if (this.ticking) return this.ticking;
+    this.ticking = during(this.deps.holds, "tick", () => this.tick()).finally(() => {
+      this.ticking = undefined;
+    });
+    return this.ticking;
+  }
+
+  private async tick(): Promise<{ fired: string[] }> {
     const { scheduler, store, owner, quietHours } = this.deps;
     const now = this.now();
     const fired: string[] = [];
     if (!isQuiet(now, owner.timezone, quietHours)) {
       for (const d of store.dueDeferred(now)) {
-        await this.deps.line.text(d.text);
         store.dropDeferred(d.id);
         fired.push(`deferred:${d.id}`);
+        await this.deps.line.text(d.text).catch((e: unknown) => this.logError("deferred", e));
       }
     }
-    for (const entry of scheduler.due(now)) {
-      scheduler.markRan(entry.id, now);
-      fired.push(`schedule:${entry.id}`);
-      await this.fire(entry);
-    }
+    try {
+      for (const entry of scheduler.due(now)) {
+        scheduler.markRan(entry.id, now);
+        fired.push(`schedule:${entry.id}`);
+        await this.fire(entry).catch((e: unknown) => this.logError(`schedule ${entry.id}`, e));
+      }
     for (const outcome of (await this.deps.watchers?.runDue()) ?? []) {
       if (outcome.kind === "hit") {
         fired.push(`watcher:${outcome.watcher.id}`);
@@ -355,7 +391,9 @@ export class Conductor {
         proactive: "initiative",
       });
     }
-    await this.deps.replan();
+    } finally {
+      await this.deps.replan();
+    }
     return { fired };
   }
 

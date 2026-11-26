@@ -30,9 +30,11 @@ export function publicApp(deps: PublicDeps): Hono {
     if (!deps.photonWebhook) return c.text("photon not configured", 503);
     return deps.photonWebhook(c.req.raw);
   });
-  const tick = async (c: { req: { query: (k: string) => string | undefined }; json: (v: unknown, s?: 200 | 401) => Response }) => {
+  // Answer at once: the tick holds the Sprite awake itself, and cron-job.org times out at 30 s.
+  const tick = (c: { req: { query: (k: string) => string | undefined }; json: (v: unknown, s?: 202 | 401) => Response }) => {
     if (!sameSecret(c.req.query("key"), deps.tickKey)) return c.json({ ok: false }, 401);
-    return c.json({ ok: true, result: await deps.onTick() });
+    void deps.onTick().catch(() => undefined);
+    return c.json({ ok: true }, 202);
   };
   app.get("/tick", tick);
   app.post("/tick", tick);
@@ -44,9 +46,9 @@ export function publicApp(deps: PublicDeps): Hono {
   return app;
 }
 
-export function localApp(backend: McpBackend): Hono {
+export function localApp(backend: McpBackend, opts: { token?: string } = {}): Hono {
   const app = new Hono();
-  app.post("/mcp", (c) => handleMcp(c.req.raw, backend));
+  app.post("/mcp", (c) => handleMcp(c.req.raw, backend, opts.token === undefined ? {} : { token: opts.token }));
   app.get("/mcp", () => new Response("method not allowed", { status: 405, headers: { allow: "POST" } }));
   return app;
 }

@@ -48,6 +48,14 @@ export interface CallTraits {
   blockedWhenTainted: boolean;
   /** Where outside text came from, for the wrapper. */
   source?: string;
+  /** Refuse the call outright, with this reason, before policy or approvals. */
+  refuse?: string;
+  /** In a tainted session the call asks the owner first (a lasting write the outside text may have shaped). */
+  askWhenTainted?: boolean;
+  /** Canonical arguments, used for approvals, receipts and execution. */
+  args?: unknown;
+  /** Session kinds that may never call this tool. Event sessions do not drive the browser. */
+  refuseIn?: readonly SessionKind[];
 }
 
 export type Classifier = (opts: { name: string; args: unknown; tool: RegisteredTool }) => CallTraits;
@@ -62,13 +70,15 @@ export interface GuardDeps {
   scopes: ScopeState;
   owner: Principal;
   classify: Classifier;
-  /** Text the owner an approval request. The server links the sent message to the token for tapbacks. */
-  requestApproval: (approval: Approval) => Promise<void>;
+  /** Text the owner an approval request. The server keeps the exact call so it can run it on 👍 without a model. */
+  requestApproval: (approval: Approval, call: { name: string; args: unknown; scope: string }) => Promise<void>;
   now?: () => Date;
 }
 
 const CONSUMED_FILE = "approvals-consumed.json";
-const APPROVAL_USE_WINDOW_MS = 60 * 60 * 1000;
+/** Longer than an approval lives (2 h), so an approval granted late is still usable once. */
+const APPROVAL_USE_WINDOW_MS = 3 * 60 * 60 * 1000;
+const SPEND: ReadonlySet<Capability> = new Set(["purchase", "travel.book"]);
 
 export function argsHash(args: unknown): string {
   return createHash("sha256").update(canonicalJson(args ?? {})).digest("hex").slice(0, 16);
@@ -101,19 +111,24 @@ export class Guard implements McpBackend {
     if (!tool) return refuse(`No tool named ${opts.name}.`);
     const scope = scopes.get(opts.scope);
     const traits = this.deps.classify({ name: opts.name, args: opts.args, tool });
-    const describe = tool.spec.meta.describe?.(opts.args) ?? opts.name;
+    const args = traits.args ?? opts.args;
+    const describe = tool.spec.meta.describe?.(args) ?? opts.name;
+    const tainted = scopes.isTainted(scope.key);
 
-    if (traits.blockedWhenTainted && scopes.isTainted(scope.key)) {
+    if (traits.refuse) return refuse(traits.refuse);
+    if (traits.refuseIn?.includes(scope.kind)) return refuse(`${opts.name} is not available in a ${scope.kind} session.`);
+    if (traits.blockedWhenTainted && tainted) {
       audit.append({ kind: "policy", conversationKey: scope.key, principal: owner.id, detail: { tool: opts.name, outcome: "deny", reason: "tainted session" } });
       return refuse(`Blocked: this conversation has read outside content, so ${opts.name} is not allowed here. Ask the owner to request it in a fresh message.`);
     }
 
-    const meta = { ...tool.spec.meta, capabilities: traits.capabilities };
-    const decision = policy.evaluate(owner, meta, opts.args);
+    const capabilities: Capability[] = traits.askWhenTainted && tainted ? [...traits.capabilities, "plans.commit"] : traits.capabilities;
+    const meta = { ...tool.spec.meta, capabilities };
+    const decision = policy.evaluate(owner, meta, args);
     audit.append({ kind: "policy", conversationKey: scope.key, principal: owner.id, detail: { tool: opts.name, outcome: decision.outcome, reason: decision.reason } });
     if (decision.outcome === "deny") return refuse(`Blocked by policy: ${decision.reason}. Do not retry.`);
     if (decision.outcome === "ask") {
-      const hash = argsHash(opts.args);
+      const hash = argsHash(args);
       const consumed = this.consumeApproval({ toolName: opts.name, argsHash: hash });
       if (!consumed) {
         const waiting = this.deps.approvals.findPending({ conversationKey: scope.key, toolName: opts.name, argsHash: hash });
@@ -122,12 +137,16 @@ export class Guard implements McpBackend {
             conversationKey: scope.key,
             requestedBy: owner.id,
             summary: describe,
-            capability: traits.capabilities.find((c) => policy.permissionFor("owner", c) === "ask" || policy.permissionFor("owner", c) === "limit") ?? traits.capabilities[0] ?? "converse",
+            capability:
+              capabilities.find((c) => SPEND.has(c)) ??
+              capabilities.find((c) => policy.permissionFor("owner", c) === "ask" || policy.permissionFor("owner", c) === "limit") ??
+              capabilities[0] ??
+              "converse",
             toolName: opts.name,
             argsHash: hash,
           });
           audit.append({ kind: "approval", conversationKey: scope.key, principal: owner.id, detail: { token: approval.token, status: "pending", summary: describe, tool: opts.name } });
-          await this.deps.requestApproval(approval);
+          await this.deps.requestApproval(approval, { name: opts.name, args, scope: scope.key });
         }
         return {
           content: [
@@ -142,7 +161,7 @@ export class Guard implements McpBackend {
 
     let callKey: string | undefined;
     if (traits.sideEffect) {
-      const begun = receipts.begin({ toolName: opts.name, args: opts.args, intentSummary: describe });
+      const begun = receipts.begin({ toolName: opts.name, args, intentSummary: describe });
       if (begun.kind === "already_done") return { content: [{ type: "text", text: `Already done at ${begun.receipt.completedAt}: ${begun.receipt.resultSummary ?? describe}. Do not do it again.` }] };
       if (begun.kind === "in_doubt") {
         return refuse(
@@ -155,11 +174,15 @@ export class Guard implements McpBackend {
     const ctx: ToolContext = { principal: owner, conversationKey: scope.key, channel: "imessage", ownerTurn: scope.ownerTurn, now: this.now };
     let result: ToolResultLike;
     try {
-      result = await tool.spec.execute(opts.args, ctx);
+      result = await tool.spec.execute(args, ctx);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (callKey) receipts.finish({ callKey, ok: false, resultSummary: message });
       audit.append({ kind: "error", conversationKey: scope.key, principal: owner.id, detail: { tool: opts.name, message } });
+      const rejected = typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" && error.status >= 400 && error.status < 500;
+      if (callKey && !rejected) {
+        return refuse(`${opts.name} may or may not have gone through (${message}). Do not retry. Check the real state, tell the owner what you found, and ask before trying again.`);
+      }
+      if (callKey) receipts.finish({ callKey, ok: false, resultSummary: message });
       return refuse(`${opts.name} failed: ${message}`);
     }
     const isError = typeof result !== "string" && result.isError === true;

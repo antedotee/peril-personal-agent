@@ -156,27 +156,42 @@ export function toolkitOfSlug(slug: string): string {
 // Fo-style autonomy, where the decision depends on the arguments as well as the slug.
 // ---------------------------------------------------------------------------
 
-const DELETE_WORDS: ReadonlySet<string> = new Set(["DELETE", "TRASH", "REMOVE", "PURGE", "DESTROY"]);
-const RSVP_WORDS: ReadonlySet<string> = new Set(["RSVP", "ACCEPT", "DECLINE", "RESPOND"]);
+const DELETE_WORDS: ReadonlySet<string> = new Set(["DELETE", "TRASH", "REMOVE", "PURGE", "DESTROY", "CLEAR"]);
 /** Saving a draft in the owner's own mailbox reaches nobody, so Peril does it without asking. */
 const OWN_DRAFT_SLUGS: ReadonlySet<string> = new Set(["GMAIL_CREATE_EMAIL_DRAFT", "GMAIL_UPDATE_DRAFT"]);
+/** A new event with no guests is a hold on the owner's own calendar. */
+const OWN_HOLD_SLUGS: ReadonlySet<string> = new Set(["GOOGLECALENDAR_CREATE_EVENT", "GOOGLECALENDAR_QUICK_ADD"]);
+const FREEBUSY_WORDS: ReadonlySet<string> = new Set(["FREEBUSY", "FREE"]);
 
-function hasAttendees(args: unknown): boolean {
+function hasGuests(args: unknown): boolean {
   if (typeof args !== "object" || args === null) return false;
   const record = args as Record<string, unknown>;
-  const list = record.attendees ?? record.attendee_emails ?? record.attendeeEmails;
-  return Array.isArray(list) ? list.length > 0 : typeof list === "string" && list.trim() !== "";
+  for (const key of ["attendees", "attendee_emails", "attendeeEmails", "guests", "invitees"]) {
+    const list = record[key];
+    if (Array.isArray(list) ? list.length > 0 : typeof list === "string" && list.trim() !== "") return true;
+  }
+  return false;
 }
 
-/** Capabilities for one call: open-instinct's slug table, then Peril's argument-aware rules. */
+/** A slug is a read only when its first action word is a read verb. Anything else is a write. */
+export function isReadSlug(slug: string): boolean {
+  const action = slug.trim().toUpperCase().split("_").slice(1);
+  return action.length > 0 && (READ_VERBS.has(action[0]!) || action.some((t) => FREEBUSY_WORDS.has(t)));
+}
+
+/**
+ * Capabilities for one call. Reads use open-instinct's table. Peril lets exactly two kinds
+ * of write through without asking: drafts in the owner's mailbox and holds on the owner's
+ * own calendar. Every other write asks (`plans.commit`), whatever its slug says.
+ */
 export function perilCapabilitiesFor(slug: string, args: unknown): Capability[] {
   const s = slug.trim().toUpperCase();
-  if (OWN_DRAFT_SLUGS.has(s)) return ["email.read"];
   const caps = new Set<Capability>(capabilitiesForSlug(s));
-  const tokens = s.split("_").slice(1);
-  if (tokens.some((t) => DELETE_WORDS.has(t))) caps.add("data.delete");
-  if (tokens.some((t) => RSVP_WORDS.has(t))) caps.add("plans.commit");
-  if (caps.has("calendar.write") && hasAttendees(args)) caps.add("plans.commit");
+  if (isReadSlug(s)) return [...caps];
+  if (OWN_DRAFT_SLUGS.has(s)) return ["email.read"];
+  if (OWN_HOLD_SLUGS.has(s) && !hasGuests(args)) return ["calendar.write"];
+  caps.add("plans.commit");
+  if (s.split("_").slice(1).some((t) => DELETE_WORDS.has(t))) caps.add("data.delete");
   return [...caps];
 }
 

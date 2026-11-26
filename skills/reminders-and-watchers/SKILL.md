@@ -15,6 +15,13 @@ Peril pays for every model call, so time-based and change-based jobs avoid the m
 
 ## Watchers
 
-A watcher is a script in `watchers/` that prints one line of JSON: `{"value": ..., "hit": true|false, "summary": "..."}`. The runtime runs it on a schedule, compares the output with the last run, and wakes you only when `hit` is true.
+A watcher is a spec, not code: a public URL, what to pull out, and a condition. Plain code checks it on a schedule and wakes you only when the condition holds and the value changed.
 
-To create one, call `create_watcher` with the source URL, what to compare, and how often. It hands the writing to a deep session that writes the script, runs it once and registers it. Never write a watcher in the chat session.
+1. `web_fetch` the page once to see where the value sits.
+2. Call `watcher_create` with:
+   - `spec.url`: the page or JSON API.
+   - `spec.extract`: `{ "kind": "regex", "pattern": "₹\\s*([\\d,]+)" }` for a value in page text, `{ "kind": "json", "path": "data.price" }` for an API, or `{ "kind": "text" }` to watch the whole page.
+   - `spec.condition`: `lt` or `gt` with a number, `eq` or `contains` with text, or `changed`.
+   - `everyMinutes`: 60 or more unless Kartik needs it faster. The minimum is 5.
+3. The tool reads the page once and returns the value it found. If that is not the value Kartik means, `watcher_remove` it and try again.
+4. Tell Kartik in one line what you're watching and how often.

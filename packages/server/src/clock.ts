@@ -55,12 +55,21 @@ export function scheduleFor(at: Date, tz: string): Record<string, unknown> {
 }
 
 export class WakePlanner {
+  private chain: Promise<unknown> = Promise.resolve();
+
   constructor(
     private readonly opts: { api: CronJobApi | undefined; store: WakeStore; tickUrl: string | undefined; tz: string; now?: () => Date },
   ) {}
 
-  /** Point the single cron-job.org job at `next`, or disable it. Skips the API call when nothing changed. */
-  async plan(next: Date | undefined): Promise<"unchanged" | "moved" | "disabled" | "unconfigured"> {
+  /** Point the single cron-job.org job at `next`, or disable it. Calls run one at a time. */
+  plan(next: Date | undefined): Promise<"unchanged" | "moved" | "disabled" | "unconfigured"> {
+    const run = this.chain.catch(() => undefined).then(() => this.planNow(next));
+    this.chain = run;
+    return run;
+  }
+
+  /** Skips the API call when nothing changed. */
+  private async planNow(next: Date | undefined): Promise<"unchanged" | "moved" | "disabled" | "unconfigured"> {
     const { api, store, tickUrl, tz } = this.opts;
     if (!api || !tickUrl) return "unconfigured";
     const now = (this.opts.now ?? (() => new Date()))();

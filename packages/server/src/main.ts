@@ -2,6 +2,7 @@
  * Boot Peril: one process, one SQLite file, one Kiro child. Run as a Sprite service; see
  * deploy/sprite/setup.sh.
  */
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@peril/core";
 import { Brain, FileSessionStore, spawnKiro } from "@peril/brain";
 import { FakeLine, PhotonLine, type InboundEvent } from "@peril/channel";
-import { Guard, appsTools, classify, gatewayTransport } from "@peril/tools-mcp";
+import { Guard, appsTools, gatewayTransport, makeClassifier } from "@peril/tools-mcp";
 import { localApp, publicApp } from "./app.js";
 import { WakePlanner, cronJobGateway } from "./clock.js";
 import { Conductor } from "./conductor.js";
@@ -36,6 +37,7 @@ import { WatcherStore, watcherTools } from "./watchers.js";
 import { composioEventsHandler } from "./events.js";
 import { CodeBox, agentBrowserFill, codeTools } from "./codebox.js";
 import { whisperTranscriber } from "./voice.js";
+import { agentBrowserCli, browserTools } from "./browser.js";
 
 const env = loadEnv();
 const state = new StateDir(env.dataDir);
@@ -68,34 +70,36 @@ const holds = env.spriteSocket ? spriteHolds(env.spriteSocket) : noHolds;
 
 const registry = new ToolRegistry();
 let conductor: Conductor;
-const watchers = new WatcherStore(state, { workspace: env.workspace });
-const checkpoint = async () => {
-  if (!env.spriteSocket) return;
-  await Bun.spawn(["sprite-env", "checkpoints", "create"], { stdout: "ignore", stderr: "ignore" }).exited.catch(() => undefined);
-};
-registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }).filter((t) => t.spec.name !== "image_generate"));
+const watchers = new WatcherStore(state);
+// image_generate needs a paid key; approval_settle is replaced by tapbacks and plain yes/no, settled in code.
+registry.registerMany(coreTools({ memory, scheduler, approvals, audit, config, outbox, workspaceDir: env.workspace }).filter((t) => !["image_generate", "approval_settle"].includes(t.spec.name)));
 registry.register(memorySearchTool(new MemoryIndex(state)));
 const codes = new CodeBox();
 registry.registerMany(codeTools({ codes, fill: agentBrowserFill, ask: async (t) => void (await line.text(t)) }));
-registry.registerMany(watcherTools({ watchers, startDeepTask: (o) => conductor.startDeepTask(o), checkpoint }));
+registry.registerMany(watcherTools({ watchers }));
+registry.registerMany(browserTools({ cli: agentBrowserCli }));
 registry.registerMany(perilTools({ line, scopes: store, roots: [env.workspace, inboxDir], startDeepTask: (o) => conductor.startDeepTask(o) }));
 if (env.composio) {
   registry.registerMany(appsTools({ transport: gatewayTransport({ baseUrl: env.composio.gatewayUrl }), userId: env.composio.userId, toolkits: env.composio.toolkits }));
 }
 
 const mcpPort = env.port + 1;
+const mcpToken = randomBytes(24).toString("hex");
 const brain = new Brain({
   spawn: () => spawnKiro({ bin: env.kiroBin, cwd: env.workspace }),
   cwd: env.workspace,
   models: { chat: env.models.chat, deep: env.models.deep, event: env.models.chat },
   mcpUrl: `http://127.0.0.1:${mcpPort}/mcp`,
+  mcpToken,
+  onTaint: (key, source) => store.taint(key, source),
   sessions: new FileSessionStore(state.path("sessions.json")),
   isTainted: (key) => store.isTainted(key),
   perilToolNames: new Set(registry.all().map((t) => t.spec.name)),
 });
 
 const owner = { kind: "owner" as const, id: "owner", tier: "owner" as const, displayName: env.owner.name };
-const guard = new Guard({ registry, policy, approvals, audit, receipts, state, scopes: store, owner, classify, requestApproval: (a) => conductor.requestApproval(a) });
+const classify = makeClassifier({ toolkits: env.composio?.toolkits ?? [] });
+const guard = new Guard({ registry, policy, approvals, audit, receipts, state, scopes: store, owner, classify, requestApproval: (a, call) => conductor.requestApproval(a, call) });
 
 const tickUrl = env.publicUrl && env.tickKey ? `${env.publicUrl}/tick?key=${encodeURIComponent(env.tickKey)}` : undefined;
 const planner = new WakePlanner({
@@ -124,6 +128,7 @@ conductor = new Conductor({
   inboxDir,
   watchers,
   codes,
+  runApproved: (call) => guard.call(call),
   ...(() => {
     const transcribe = whisperTranscriber({ whisperBin: process.env.PERIL_WHISPER_BIN ?? "whisper-cli", model: process.env.PERIL_WHISPER_MODEL ?? path.join(env.dataDir, "models", "ggml-base.bin") });
     return transcribe ? { transcribe } : {};
@@ -161,13 +166,17 @@ const pub = publicApp({
       })
     : undefined,
 });
-const local = localApp(guard);
-local.post("/dev/say", async (c) => {
-  const body = (await c.req.json()) as { text?: string };
-  await onEvent({ kind: "text", id: `dev_${Date.now()}`, from: env.owner.phone, spaceId: "dev", at: new Date(), text: String(body.text ?? "") });
-  await conductor.settle();
-  return c.json({ sent: line instanceof FakeLine ? line.texts() : "via photon" });
-});
+const local = localApp(guard, { token: mcpToken });
+if (line instanceof FakeLine) {
+  // Local development only: with Photon configured this route does not exist.
+  const devLine = line;
+  local.post("/dev/say", async (c) => {
+    const body = (await c.req.json()) as { text?: string };
+    await onEvent({ kind: "text", id: `dev_${Date.now()}`, from: env.owner.phone, spaceId: "dev", at: new Date(), text: String(body.text ?? "") });
+    await conductor.settle();
+    return c.json({ sent: devLine.texts() });
+  });
+}
 
 Bun.serve({ port: env.port, hostname: "0.0.0.0", fetch: pub.fetch });
 Bun.serve({ port: mcpPort, hostname: "127.0.0.1", fetch: local.fetch });
@@ -176,7 +185,9 @@ process.stderr.write(`peril: listening on :${env.port}, MCP on 127.0.0.1:${mcpPo
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
-    brain.shutdown();
-    process.exit(0);
+    void Promise.race([conductor.settle(), Bun.sleep(10_000)]).finally(() => {
+      brain.shutdown();
+      process.exit(0);
+    });
   });
 }

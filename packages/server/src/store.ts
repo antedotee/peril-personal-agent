@@ -28,6 +28,7 @@ export class PerilStore implements ScopeState {
       CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS taint (scope TEXT PRIMARY KEY, source TEXT NOT NULL, at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_messages (message_id TEXT PRIMARY KEY, token TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS approval_calls (token TEXT PRIMARY KEY, name TEXT NOT NULL, args TEXT NOT NULL, scope TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS open_loops (id INTEGER PRIMARY KEY, topic TEXT NOT NULL, at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS deferred (id INTEGER PRIMARY KEY, text TEXT NOT NULL, not_before TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -71,6 +72,16 @@ export class PerilStore implements ScopeState {
   approvalFor(messageId: string): string | undefined {
     const row = this.db.query<{ token: string }, [string]>("SELECT token FROM approval_messages WHERE message_id = ?").get(messageId);
     return row?.token;
+  }
+
+  /** The exact tool call an approval covers, so a 👍 runs it in code with no model. */
+  rememberCall(token: string, call: { name: string; args: unknown; scope: string }): void {
+    this.db.query("INSERT OR REPLACE INTO approval_calls (token, name, args, scope) VALUES (?, ?, ?, ?)").run(token, call.name, JSON.stringify(call.args ?? {}), call.scope);
+  }
+
+  callFor(token: string): { name: string; args: unknown; scope: string } | undefined {
+    const row = this.db.query<{ name: string; args: string; scope: string }, [string]>("SELECT name, args, scope FROM approval_calls WHERE token = ?").get(token);
+    return row ? { name: row.name, args: JSON.parse(row.args) as unknown, scope: row.scope } : undefined;
   }
 
   // Open loops -------------------------------------------------------------

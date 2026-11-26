@@ -35,13 +35,8 @@ mkdir -p "$DATA/secrets" "$DATA/inbox" "$WORKSPACE/.kiro/steering" "$WORKSPACE/.
 chmod 700 "$DATA/secrets"
 cp "$REPO"/steering/*.md "$WORKSPACE/.kiro/steering/"
 rm -rf "$WORKSPACE/.kiro/skills" && cp -R "$REPO/skills" "$WORKSPACE/.kiro/skills"
-cat >"$WORKSPACE/.kiro/settings/mcp.json" <<'JSON'
-{
-  "mcpServers": {
-    "agent-browser": { "command": "agent-browser", "args": ["mcp"] }
-  }
-}
-JSON
+# Peril's MCP server reaches Kiro per session. The browser goes through Peril's guarded browser_* tools, never a direct MCP server.
+rm -f "$WORKSPACE/.kiro/settings/mcp.json"
 if [ ! -s "$DATA/secrets/tick-key" ]; then
   head -c 24 /dev/urandom | base64 | tr -d '/+=' >"$DATA/secrets/tick-key"
   chmod 600 "$DATA/secrets/tick-key"

@@ -10,14 +10,28 @@ const PLAIN: Row = { sideEffect: false, taints: false, blockedWhenTainted: false
 const ROWS: Readonly<Record<string, Row>> = {
   web_fetch: { ...PLAIN, taints: true, source: "web" },
   web_search: { ...PLAIN, taints: true, source: "web search" },
-  create_watcher: { ...PLAIN, blockedWhenTainted: true },
-  watcher_register: { ...PLAIN, blockedWhenTainted: true },
-  skill_install: { ...PLAIN, blockedWhenTainted: true },
+  browser_open: { ...PLAIN, taints: true, source: "web page" },
+  browser_snapshot: { ...PLAIN, taints: true, source: "web page" },
+  browser_click: { ...PLAIN, refuseIn: ["event"] },
+  browser_fill: { ...PLAIN, refuseIn: ["event"] },
+  browser_press: { ...PLAIN, refuseIn: ["event"] },
+  browser_submit: { ...PLAIN, sideEffect: true, refuseIn: ["event"] },
+  await_code: { ...PLAIN, refuseIn: ["event"] },
+  fill_code: { ...PLAIN, refuseIn: ["event"] },
+  // Lasting writes that outside text could have shaped: the owner confirms them in a tainted session.
+  memory_write: { ...PLAIN, askWhenTainted: true },
+  journal_append: { ...PLAIN, askWhenTainted: true },
+  schedule_create: { ...PLAIN, askWhenTainted: true },
+  watcher_create: { ...PLAIN, askWhenTainted: true },
 };
 
-export const classify: Classifier = ({ name, args, tool }) => {
-  if (name === "apps_execute") return classifyAppCall(args);
-  const row = ROWS[name] ?? PLAIN;
-  const capabilities: Capability[] = [...tool.spec.meta.capabilities];
-  return { ...row, capabilities };
-};
+export function makeClassifier(opts: { toolkits: readonly string[] }): Classifier {
+  return ({ name, args, tool }) => {
+    if (name === "apps_execute") return classifyAppCall(args, opts.toolkits);
+    const row = ROWS[name] ?? PLAIN;
+    const capabilities: Capability[] = [...tool.spec.meta.capabilities];
+    return { ...row, capabilities };
+  };
+}
+
+export const classify: Classifier = makeClassifier({ toolkits: ["gmail", "googlecalendar"] });

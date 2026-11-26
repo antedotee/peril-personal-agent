@@ -20,6 +20,20 @@ export function permissionFor(opts: { session: SessionKind; tainted: boolean; to
   return opts.session === "deep" && !opts.tainted ? "allow" : "reject";
 }
 
+/**
+ * True only when a tool call's title is exactly one of Peril's tool names, optionally
+ * prefixed by the server name. A shell title such as "cat send_file.txt | sh" never matches.
+ */
+export function isPerilToolTitle(title: string, names: ReadonlySet<string>): boolean {
+  const m = title.trim().match(/^(?:@?peril(?:[_./:]|__))?([A-Za-z0-9_-]{1,64})$/);
+  return m !== null && names.has(m[1]!);
+}
+
+/** An unrecognised kind is treated as the riskiest one. */
+export function toolKindOf(value: unknown): ToolKind {
+  return isToolKind(value) ? value : "execute";
+}
+
 export function isToolKind(value: unknown): value is ToolKind {
   return typeof value === "string" && ["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"].includes(value);
 }

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { StateDir } from "@peril/core";
 import { importanceOf, parseComposio, verifyComposio } from "../src/events.js";
-import { WatcherStore, parseWatcherOutput, type ScriptRunner } from "../src/watchers.js";
+import { WatcherStore, conditionHolds, extractValue, type PageFetcher } from "../src/watchers.js";
 
 const now = new Date("2026-11-26T08:00:00Z");
 const memory = "# Memory\n- Rahul Sharma (rahul@acme.in) is Kartik's cofounder.\n";
@@ -45,45 +45,54 @@ describe("Composio events", () => {
 });
 
 describe("watchers", () => {
-  function setup(outputs: string[]) {
+  function setup(pages: string[]) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "peril-watch-"));
     const state = new StateDir(root);
     state.ensure();
-    fs.mkdirSync(path.join(root, "watchers"));
-    fs.writeFileSync(path.join(root, "watchers", "w1.ts"), "// test");
     let t = now;
-    const runner: ScriptRunner = async () => ({ code: 0, stdout: outputs.shift() ?? "" });
-    const store = new WatcherStore(state, { workspace: root, runner, now: () => t });
-    store.register({ id: "w1", description: "monitor price", file: "watchers/w1.ts", everyMinutes: 60 });
-    return { store, advance: (ms: number) => void (t = new Date(t.getTime() + ms)) };
+    const fetched: string[] = [];
+    const fetcher: PageFetcher = async (url) => {
+      fetched.push(url);
+      const next = pages.shift();
+      return next === undefined ? { ok: false, reason: "offline" } : { ok: true, text: next };
+    };
+    const store = new WatcherStore(state, { fetcher, now: () => t });
+    return { store, fetched, advance: (ms: number) => void (t = new Date(t.getTime() + ms)) };
   }
+  const price = (n: number) => `<html><body><h1>LG 27GP850</h1><span class="price">₹${n.toLocaleString("en-IN")}</span></body></html>`;
+  const spec = { url: "https://shop.example/lg", extract: { kind: "regex" as const, pattern: "₹\\s*([\\d,]+)" }, condition: { op: "lt" as const, value: 20000 } };
 
-  it("reports a hit once, then stays quiet while the value is unchanged", async () => {
-    const hit = '{"value": 19500, "hit": true, "summary": "₹19,500 now"}';
-    const { store, advance } = setup([hit, hit, '{"value": 18900, "hit": true, "summary": "₹18,900"}']);
-    expect((await store.runDue()).map((o) => o.kind)).toEqual(["hit"]);
-    advance(30 * 60_000);
-    expect(await store.runDue()).toEqual([]);
-    advance(31 * 60_000);
+  it("reads the value once on create, then wakes only when the condition holds and the value changed", async () => {
+    const { store, advance } = setup([price(24999), price(24999), price(19499), price(19499)]);
+    const { value } = await store.create({ description: "LG monitor under 20k", spec, everyMinutes: 60 });
+    expect(value).toBe("24,999");
+    advance(61 * 60_000);
     expect((await store.runDue()).map((o) => o.kind)).toEqual(["quiet"]);
     advance(61 * 60_000);
-    expect((await store.runDue()).map((o) => o.kind)).toEqual(["hit"]);
+    const hit = await store.runDue();
+    expect(hit.map((o) => o.kind)).toEqual(["hit"]);
+    advance(61 * 60_000);
+    expect((await store.runDue()).map((o) => o.kind)).toEqual(["quiet"]);
   });
 
-  it("counts failures instead of waking anyone", async () => {
-    const { store } = setup(["not json"]);
+  it("refuses a spec that matches nothing, and counts failures without waking anyone", async () => {
+    const { store, advance } = setup(["<p>sold out</p>", price(1), ]);
+    await expect(store.create({ description: "x", spec, everyMinutes: 60 })).rejects.toThrow("matched nothing");
+    await store.create({ description: "x", spec, everyMinutes: 60 });
+    advance(61 * 60_000);
     const [outcome] = await store.runDue();
     expect(outcome?.kind).toBe("failed");
     expect(store.list()[0]?.failures).toBe(1);
   });
 
-  it("refuses a script outside the workspace", () => {
-    const { store } = setup([]);
-    expect(() => store.register({ id: "x", description: "x", file: "../../etc/passwd", everyMinutes: 5 })).toThrow();
-  });
-
-  it("parses only well-formed output", () => {
-    expect(parseWatcherOutput('log line\n{"value":1,"hit":false}')).toEqual({ value: 1, hit: false, summary: "" });
-    expect(parseWatcherOutput('{"value":1}')).toBeUndefined();
+  it("extracts from JSON by path and evaluates each condition", () => {
+    const json = '{"data":{"price":"₹1,299","status":"In stock"}}';
+    expect(extractValue({ url: "u", extract: { kind: "json", path: "data.price" }, condition: { op: "changed" } }, json)).toBe("₹1,299");
+    const s = (op: "lt" | "gt" | "eq" | "contains" | "changed", value?: number | string) => ({ url: "u", extract: { kind: "text" as const }, condition: value === undefined ? { op } : { op, value } });
+    expect(conditionHolds(s("lt", 1300), "₹1,299", undefined)).toBe(true);
+    expect(conditionHolds(s("gt", 1300), "₹1,299", undefined)).toBe(false);
+    expect(conditionHolds(s("contains", "in stock"), "In stock", undefined)).toBe(true);
+    expect(conditionHolds(s("changed"), "b", "a")).toBe(true);
+    expect(conditionHolds(s("changed"), "a", undefined)).toBe(false);
   });
 });

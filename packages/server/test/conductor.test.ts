@@ -30,11 +30,11 @@ class RecordingHolds implements Holds {
   async release(name: string) { this.log.push(`release ${name}`); }
 }
 
-function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: number; codes?: CodeBox } = {}) {
+function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: number; codes?: CodeBox; line?: FakeLine; runApproved?: ConstructorParameters<typeof Conductor>[0]["runApproved"] } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "peril-conductor-"));
   const state = new StateDir(root);
   state.ensure();
-  const line = new FakeLine();
+  const line = opts.line ?? new FakeLine();
   const audit = new AuditLog(state);
   const brain = opts.brain ?? new ScriptBrain();
   const holds = new RecordingHolds();
@@ -58,6 +58,7 @@ function setup(opts: { brain?: ScriptBrain; now?: () => Date; replyBudgetMs?: nu
     inboxDir: root,
     replan: async () => void replans++,
     ...(opts.codes ? { codes: opts.codes } : {}),
+    ...(opts.runApproved ? { runApproved: opts.runApproved } : {}),
     debounceMs: 5,
     replyBudgetMs: opts.replyBudgetMs ?? 1000,
     ...(opts.now ? { now: opts.now } : {}),
@@ -143,6 +144,44 @@ describe("Conductor, owner messages", () => {
   });
 });
 
+describe("Conductor, failures", () => {
+  it("keeps answering after one iMessage send fails", async () => {
+    class FlakyLine extends FakeLine {
+      fails = 1;
+      override async text(body: string, opts: { replyTo?: string } = {}) {
+        if (this.fails-- > 0) throw new Error("photon down");
+        return super.text(body, opts);
+      }
+    }
+    const line = new FlakyLine();
+    const { conductor, brain } = setup({ line, brain: new ScriptBrain((t) => reply(t.includes("second") ? "got the second" : "got it")) });
+    await conductor.onInbound(text("first"));
+    await conductor.settle();
+    await conductor.onInbound(text("second"));
+    await conductor.settle();
+    expect(brain.runs).toHaveLength(2);
+    expect(line.texts()).toEqual(["got the second"]);
+  });
+
+  it("fires a reminder once when two ticks overlap", async () => {
+    const now = new Date("2026-11-26T08:00:00Z");
+    const { conductor, scheduler, line } = setup({ now: () => now });
+    scheduler.create({ name: "r", prompt: "say: drink water", nextRunAt: now.toISOString(), enabled: true, tz: "Asia/Kolkata" });
+    await Promise.all([conductor.onTick(), conductor.onTick()]);
+    expect(line.texts()).toEqual(["drink water"]);
+  });
+
+  it("does not let a group chat become the owner's thread", async () => {
+    const { conductor, store } = setup();
+    await conductor.onInbound({ ...text("hi all"), spaceId: "any;+;chat123" });
+    await conductor.settle();
+    expect(store.getValue("owner-space")).toBeUndefined();
+    await conductor.onInbound({ ...text("hi"), spaceId: "any;-;+919876543210" });
+    await conductor.settle();
+    expect(store.getValue("owner-space")).toBe("any;-;+919876543210");
+  });
+});
+
 describe("Conductor, strangers", () => {
   it("never runs Kiro for a stranger, replies politely and tells the owner once", async () => {
     const { conductor, line, brain } = setup();
@@ -189,12 +228,29 @@ describe("Conductor, approvals", () => {
   });
 });
 
+describe("Conductor, approved calls run in code", () => {
+  it("a 👍 runs the exact stored call through the guard with no model, and a second 👍 does nothing", async () => {
+    const ran: unknown[] = [];
+    const { conductor, line, brain, approvals } = setup({ runApproved: async (call) => (ran.push(call), { content: [{ type: "text", text: "sent" }] }) });
+    const a = approvals.create({ conversationKey: "event:9", requestedBy: "owner", summary: "gmail send email to rahul@acme.in", capability: "email.send", toolName: "apps_execute", argsHash: "h" });
+    await conductor.requestApproval(a, { name: "apps_execute", args: { slug: "GMAIL_SEND_EMAIL", arguments: { to: "rahul@acme.in" } }, scope: "event:9" });
+    const asked = line.actions.at(-1);
+    if (asked?.kind !== "text") throw new Error("expected approval text");
+    const tap = { kind: "tapback" as const, id: "t9", from: OWNER, spaceId: "s1", at: new Date(), emoji: "👍", targetId: asked.id };
+    await conductor.onInbound(tap);
+    await conductor.onInbound({ ...tap, id: "t10" });
+    expect(ran).toEqual([{ name: "apps_execute", args: { slug: "GMAIL_SEND_EMAIL", arguments: { to: "rahul@acme.in" } }, scope: "event:9" }]);
+    expect(brain.runs).toHaveLength(0);
+    expect(line.texts().at(-1)).toBe("done ✅ gmail send email to rahul@acme.in");
+  });
+});
+
 describe("Conductor, wakes", () => {
   it("makes no Kiro call and takes no human hold when nothing is due", async () => {
     const { conductor, brain, holds } = setup();
     expect((await conductor.onTick()).fired).toEqual([]);
     expect(brain.runs).toHaveLength(0);
-    expect(holds.log).toEqual([]);
+    expect(holds.log).toEqual(["hold tick 5m", "release tick"]);
   });
 
   it("texts a say: reminder verbatim with no model call", async () => {
