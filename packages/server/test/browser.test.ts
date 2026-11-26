@@ -37,8 +37,8 @@ describe("browser tools", () => {
   });
 
   it("refuses to click an element whose label it cannot read, and buttons like Allow, Post and Continue", async () => {
-    const { calls, run } = tools({ "@e0": "  ", "@e2": "Allow", "@e3": "Post", "@e4": "Continue to payment", "@e5": "Accept all", "@e6": "Yes", "@e7": "Save", "@e8": "Accept" });
-    for (const ref of ["@e0", "@e1", "@e2", "@e3", "@e4", "@e6", "@e7", "@e8"]) expect(JSON.stringify(await run("browser_click", { ref }))).toMatch(/browser_submit|not clicked/);
+    const { calls, run } = tools({ "@e0": "  ", "@e2": "Allow", "@e3": "Post", "@e4": "Continue to payment", "@e5": "Accept all", "@e6": "Yes", "@e7": "Save", "@e8": "Accept", "@e10": "Close account" });
+    for (const ref of ["@e0", "@e1", "@e2", "@e3", "@e4", "@e6", "@e7", "@e8", "@e10"]) expect(JSON.stringify(await run("browser_click", { ref }))).toMatch(/browser_submit|not clicked/);
     await run("browser_click", { ref: "@e5" });
     expect(calls.filter((c) => c[0] === "click")).toEqual([["click", "@e5"]]);
   });

@@ -17,7 +17,7 @@ export const agentBrowserCli: BrowserCli = async (args) => {
 
 /** Words on a button or link that commit Kartik to something. */
 export const COMMIT_LABEL =
-  /\b(pay|place order|order now|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|post|publish|share|invite|delete|remove|cancel|subscribe|sign up|register|enroll|apply|transfer|donate|allow|authori[sz]e|approve|accept|agree|continue|proceed|join|follow|yes|ok|okay|save|done|finish|update|change|unsubscribe|archive|report|block)\b/i;
+  /\b(pay|place order|order now|buy|purchase|checkout|check out|confirm|book|reserve|submit|send|post|publish|share|invite|delete|remove|cancel|subscribe|sign up|register|enroll|apply|transfer|donate|allow|authori[sz]e|approve|accept|agree|continue|proceed|join|follow|yes|ok|okay|save|done|finish|update|change|unsubscribe|archive|report|block|close account|deactivate|terminate)\b/i;
 /** Cookie-banner dismissals that look like commits but only close the banner. */
 const DISMISS_LABEL = /^\s*(accept all( cookies)?|accept cookies|got it|close|dismiss|no,? thanks|not now|reject all( cookies)?|maybe later)\s*$/i;
 
