@@ -37,7 +37,7 @@ You need a Fly.io account, an iPhone, and a Kiro account from your org. Keep eve
 2. Copy the repo onto the Sprite and run the setup script:
 
 	```sh
-	sprite exec -s peril -- git clone https://github.com/<you>/peril-personal-agent ~/peril-personal-agent
+	sprite exec -s peril -- git clone https://github.com/antedotee/peril-personal-agent ~/peril-personal-agent
 	sprite exec -s peril -- bash ~/peril-personal-agent/deploy/sprite/setup.sh
 	```
 
