@@ -14,6 +14,14 @@ Each row is a question the plan could not answer from documentation. A row moves
 | 9 | Kiro titles a Peril MCP tool call as the bare tool name (or `peril/<name>`), which `isPerilToolTitle` expects | open | If not, Peril tools fail closed in chat; adjust the pattern in `packages/brain/src/permissions.ts` from a live `kiro-cli acp` log |
 | 8 | The Sprite pauses between webhooks, and a cron-job.org request wakes it | open | None needed if it holds; the design depends on it |
 
+## Verified on the Sprite (2026-11-26)
+
+- `setup.sh` installs Bun 1.4.4, kiro-cli 3.6.2 and agent-browser 0.45.0 on the Sprite. npm 12 blocks agent-browser's install script unless setup passes `--allow-scripts=agent-browser`.
+- The `peril` service starts and `https://peril-6skd.sprites.app/health` answers 200 with the URL set to public.
+- `GET https://api.sprites.dev/v1/gateway/list` works from inside the Sprite with no auth header.
+- The Tasks API socket is at `/.sprite/api.sock`.
+- `peril.env` must be read with Bun's dotenv parser: shell `source` runs `8` from `PERIL_BRIEFING_CRON=30 8 * * *`.
+
 ## Verified locally
 
 - The server boots and `/health` answers. The public port has no `/mcp`. The local MCP port refuses a caller without the per-boot token. `/tick` answers 401 to a wrong key and 202 to the right one. Run on macOS with `PORT=18080 bun packages/server/src/main.ts`.
