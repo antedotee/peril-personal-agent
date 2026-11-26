@@ -6,12 +6,12 @@ Each row is a question the plan could not answer from documentation. A row moves
 | --- | --- | --- | --- |
 | 1 | Kiro org device-flow login works on the Sprite, and ACP `session/new` accepts `_meta.kiro.modelId` | verified | Org login on the Sprite, then `/dev/say` returned a reply in Peril's voice through `kiro-cli acp` with `claude-sonnet-5.5` set. Whether Kiro used that model rather than `auto` is not yet confirmed | Fallback: open-instinct's Pi loop with Gemini's free tier |
 | 2 | Kiro sends `session/request_permission` to the ACP client for an untrusted tool | open | Fallback: rely on the policy guard alone, which already blocks every side effect |
-| 3 | Kiro uses the `mcpServers` passed in `session/new`, including the `x-peril-scope` header | open | Fallback: a workspace `.kiro/settings/mcp.json` pointing at `http://127.0.0.1:8081/mcp`, scope `owner` |
+| 3 | Kiro uses the `mcpServers` passed in `session/new`, including the `x-peril-scope` header | verified | "remember that I like window seats" wrote the line to `memory/MEMORY.md` through `memory_write`, and the next turn read it back | Fallback: a workspace `.kiro/settings/mcp.json` pointing at `http://127.0.0.1:8081/mcp`, scope `owner` |
 | 4 | Photon Free lets Peril text the owner first after one inbound message | open | Fallback: the owner's Mac with imessage-kit |
 | 5 | Composio's REST API works through the Sprites gateway at `/api/v3.1/tools/execute/{slug}` | open | Fallback: a Custom API connector for `https://backend.composio.dev` with header `x-api-key` |
 | 6 | Composio triggers count against the 10,000 monthly tool calls | open | Fallback: Gmail watch through Pub/Sub and Calendar `events.watch` |
 | 7 | `agent-browser install --with-deps` works on the Sprite's Ubuntu, and the CLI shares one browser session across calls (`open`, `snapshot`, `get text`, `click`, `fill`) | open | Fallback: Cloudflare Browser Run, 10 minutes a day |
-| 9 | Kiro titles a Peril MCP tool call as the bare tool name (or `peril/<name>`), which `isPerilToolTitle` expects | open | If not, Peril tools fail closed in chat; adjust the pattern in `packages/brain/src/permissions.ts` from a live `kiro-cli acp` log |
+| 9 | Kiro titles a Peril MCP tool call as the bare tool name (or `peril/<name>`), which `isPerilToolTitle` expects | verified in effect | `memory_write` ran from the chat session, so it was not rejected as a shell call. The exact title string is not logged yet | If not, Peril tools fail closed in chat; adjust the pattern in `packages/brain/src/permissions.ts` from a live `kiro-cli acp` log |
 | 8 | The Sprite pauses between webhooks, and a cron-job.org request wakes it | open | None needed if it holds; the design depends on it |
 
 ## Verified on the Sprite (2026-11-26)
