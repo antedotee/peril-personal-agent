@@ -37,8 +37,8 @@ You need a Fly.io account, an iPhone, and a Kiro account from your org. Keep eve
 2. Copy the repo onto the Sprite and run the setup script:
 
 	```sh
-	sprite exec -s peril -- git clone https://github.com/antedotee/peril-personal-agent ~/peril-personal-agent
-	sprite exec -s peril -- bash ~/peril-personal-agent/deploy/sprite/setup.sh
+	sprite exec -s peril -- bash -lc 'git clone https://github.com/antedotee/peril-personal-agent ~/peril-personal-agent'
+	sprite exec -s peril -- bash -lc '~/peril-personal-agent/deploy/sprite/setup.sh'
 	```
 
 	The first run writes `~/.peril/peril.env`. Fill in `PERIL_OWNER_PHONE` and `PERIL_PUBLIC_URL`. Get the URL with `sprite url -s peril`.
@@ -66,7 +66,7 @@ You need a Fly.io account, an iPhone, and a Kiro account from your org. Keep eve
 7. Rerun `setup.sh`, then check every integration:
 
 	```sh
-	sprite exec -s peril -- bash ~/peril-personal-agent/deploy/sprite/setup.sh
+	sprite exec -s peril -- bash -lc '~/peril-personal-agent/deploy/sprite/setup.sh'
 	```
 
 	The last section prints `bun run doctor`. Every line should start with `ok`.

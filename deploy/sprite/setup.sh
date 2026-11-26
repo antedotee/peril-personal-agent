@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Set up Peril inside a Sprite. Safe to run again: every step checks before it acts.
-#   sprite exec -s peril -- bash ~/peril-personal-agent/deploy/sprite/setup.sh
+#   sprite exec -s peril -- bash -lc '~/peril-personal-agent/deploy/sprite/setup.sh'
 set -euo pipefail
 
 REPO="${PERIL_REPO:-$HOME/peril-personal-agent}"
