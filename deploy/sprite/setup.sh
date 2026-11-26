@@ -20,11 +20,17 @@ kiro-cli --version || true
 kiro-cli settings acp.agentEngine v3 >/dev/null 2>&1 || true
 
 step "agent-browser"
-if ! command -v agent-browser >/dev/null; then
-  npm install -g agent-browser
+# npm 12 blocks install scripts by default; agent-browser's postinstall fetches its native binary.
+export PATH="$(npm prefix -g)/bin:$PATH"
+if ! agent-browser --version >/dev/null 2>&1; then
+  npm install -g --allow-scripts=agent-browser agent-browser || npm install -g agent-browser
 fi
-agent-browser install --with-deps >/dev/null 2>&1 || agent-browser install
-agent-browser --version || true
+if agent-browser --version >/dev/null 2>&1; then
+  agent-browser install --with-deps >/dev/null 2>&1 || agent-browser install || echo "WARN: Chrome install failed; browser errands are off until it works"
+  agent-browser --version
+else
+  echo "WARN: agent-browser is not installed; browser errands are off. Everything else still works."
+fi
 
 step "dependencies"
 cd "$REPO"
