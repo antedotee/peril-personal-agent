@@ -63,5 +63,4 @@ else
 fi
 
 step "doctor"
-set -a; . "$ENV_FILE"; set +a
-PERIL_DATA_DIR="$DATA" PERIL_WORKSPACE="$WORKSPACE" bun run doctor || true
+PERIL_DATA_DIR="$DATA" PERIL_WORKSPACE="$WORKSPACE" bun --env-file="$ENV_FILE" packages/server/src/doctor.ts || true
