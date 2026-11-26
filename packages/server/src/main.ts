@@ -59,9 +59,15 @@ config.owner = { name: env.owner.name, phones: env.owner.phone ? [env.owner.phon
 config.agent = { name: env.agentName };
 
 const ownerSpace = store.getValue("owner-space");
-const line = env.photon
-  ? await PhotonLine.connect(env.photon, { phone: env.owner.phone, ...(ownerSpace ? { spaceId: ownerSpace } : {}) })
-  : new FakeLine();
+async function connectPhoton(photon: NonNullable<typeof env.photon>): Promise<PhotonLine> {
+  try {
+    return await PhotonLine.connect(photon, { phone: env.owner.phone, ...(ownerSpace ? { spaceId: ownerSpace } : {}) });
+  } catch (error) {
+    process.stderr.write(`peril: Photon startup failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}\n`);
+    throw error;
+  }
+}
+const line = env.photon ? await connectPhoton(env.photon) : new FakeLine();
 if (line instanceof FakeLine) process.stderr.write("peril: Photon is not configured; owner texts go to the dev log only\n");
 
 const outbox: Outbox = { send: async (msg) => void (await line.text(msg.text)) };

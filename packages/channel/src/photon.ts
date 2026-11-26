@@ -52,6 +52,7 @@ export class PhotonLine implements OwnerLine, ReplyLine {
       providers: [imessage.config()],
       webhookSecret: creds.webhookSecret,
       telemetry: false,
+      signal: AbortSignal.timeout(20_000),
     });
     return new PhotonLine(app, owner);
   }
