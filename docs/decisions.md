@@ -20,6 +20,9 @@ Each row is a question the plan could not answer from documentation. A row moves
 - The `peril` service starts and `https://peril-6skd.sprites.app/health` answers 200 with the URL set to public.
 - `GET https://api.sprites.dev/v1/gateway/list` works from inside the Sprite with no auth header.
 - The Tasks API socket is at `/.sprite/api.sock`.
+- iMessage round trip works: a text to the Photon Free line reaches `/photon`, passes the signature check, and Peril replies through Kiro.
+- Photon returns a webhook's signing secret only at registration. `deploy/sprite/photon-webhook.ts` deletes and re-registers the webhook and saves the new secret without printing it.
+- The Photon dashboard's `.env` block names the credentials `SPECTRUM_PROJECT_ID` and `SPECTRUM_PROJECT_SECRET`. The webhook signing secret is not in it.
 - `peril.env` must be read with Bun's dotenv parser: shell `source` runs `8` from `PERIL_BRIEFING_CRON=30 8 * * *`.
 
 ## Verified locally
