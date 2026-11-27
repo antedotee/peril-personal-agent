@@ -9,6 +9,7 @@ import { handleMcp, type McpBackend } from "@peril/tools-mcp";
 
 export interface PublicDeps {
   agentName: string;
+  photonStatus?: () => string;
   /** Verify and accept a Photon webhook. Undefined until Photon is configured. */
   photonWebhook: ((request: Request) => Promise<Response>) | undefined;
   tickKey: string | undefined;
@@ -25,7 +26,7 @@ function sameSecret(given: string | undefined, expected: string | undefined): bo
 
 export function publicApp(deps: PublicDeps): Hono {
   const app = new Hono();
-  app.get("/health", (c) => c.json({ ok: true, agent: deps.agentName }));
+  app.get("/health", (c) => c.json({ ok: true, agent: deps.agentName, ...(deps.photonStatus ? { photon: deps.photonStatus() } : {}) }));
   app.post("/photon", async (c) => {
     if (!deps.photonWebhook) return c.text("photon not configured", 503);
     return deps.photonWebhook(c.req.raw);

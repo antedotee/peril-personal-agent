@@ -59,12 +59,15 @@ config.owner = { name: env.owner.name, phones: env.owner.phone ? [env.owner.phon
 config.agent = { name: env.agentName };
 
 const ownerSpace = store.getValue("owner-space");
-async function connectPhoton(photon: NonNullable<typeof env.photon>): Promise<PhotonLine> {
+let photonError: string | undefined;
+// A bad Photon credential must not crash-loop the service: that keeps the Sprite awake and billing.
+async function connectPhoton(photon: NonNullable<typeof env.photon>): Promise<PhotonLine | FakeLine> {
   try {
     return await PhotonLine.connect(photon, { phone: env.owner.phone, ...(ownerSpace ? { spaceId: ownerSpace } : {}) });
   } catch (error) {
-    process.stderr.write(`peril: Photon startup failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}\n`);
-    throw error;
+    photonError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    process.stderr.write(`peril: Photon startup failed: ${photonError}. Running without iMessage until the secrets are fixed and the service restarts.\n`);
+    return new FakeLine();
   }
 }
 const line = env.photon ? await connectPhoton(env.photon) : new FakeLine();
@@ -164,6 +167,7 @@ for (const seed of [
 const onEvent = (event: InboundEvent) => conductor.onInbound(event);
 const pub = publicApp({
   agentName: env.agentName,
+  photonStatus: () => (line instanceof PhotonLine ? "ok" : photonError ? `failed: ${photonError}` : "not configured"),
   photonWebhook: line instanceof PhotonLine ? (req) => line.handleWebhook(req, onEvent) : undefined,
   tickKey: env.tickKey,
   onTick: () => conductor.onTick(),
