@@ -164,11 +164,25 @@ for (const seed of [
   if (!scheduler.list().some((e) => e.name === seed.name)) scheduler.create({ ...seed, tz: env.owner.timezone, enabled: true });
 }
 
-const onEvent = (event: InboundEvent) => conductor.onInbound(event);
+const onEvent = async (event: InboundEvent) => {
+  process.stderr.write(`peril: inbound ${event.kind} from ${event.from.replace(/\d(?=\d{4})/g, "*")} owner=${conductor.isOwner(event.from)}\n`);
+  try {
+    await conductor.onInbound(event);
+  } catch (error) {
+    process.stderr.write(`peril: inbound handling failed: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  }
+};
 const pub = publicApp({
   agentName: env.agentName,
   photonStatus: () => (line instanceof PhotonLine ? "ok" : photonError ? `failed: ${photonError}` : "not configured"),
-  photonWebhook: line instanceof PhotonLine ? (req) => line.handleWebhook(req, onEvent) : undefined,
+  photonWebhook:
+    line instanceof PhotonLine
+      ? async (req) => {
+          const res = await line.handleWebhook(req, onEvent);
+          process.stderr.write(`peril: /photon webhook -> ${res.status}${res.status >= 400 ? " (check the webhook signing secret)" : ""}\n`);
+          return res;
+        }
+      : undefined,
   tickKey: env.tickKey,
   onTick: () => conductor.onTick(),
   appEvents: env.composioWebhookSecret
